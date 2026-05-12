@@ -1,3 +1,5 @@
+# Pipeline de execução no Azure
+
 trigger: none
 
 pool:
@@ -5,19 +7,25 @@ pool:
 
 # Set variables once
 variables:
-  - group: cypress-variables-v2
+  - group: cypress-variables-seu-barriga
   # - name: TRIGGER_BRANCH
   #   value: $(resources.pipeline.app-delivery.sourceBranch) # pipeline que dispara a trigger
   - name: DASHBOARD_TESTS_RESULT
     value: "$(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)&view=ms.vss-test-web.build-test-results-tab"
-  - name: TELEGRAM_URL_PORTAL_MONITORAMENTO
-    value: "https://web.telegram.org/k/#$(TELEGRAM_WEB_URL_PORTAL_MONITORAMENTO)"
+  - name: TELEGRAM_URL_GROUP
+    value: "https://web.telegram.org/k/#$(TELEGRAM_WEB_URL)"
+  - name: TERM # evita warning no log no ci do cypress
+    value: xterm
 
 parameters:  
   - name: RUN_ON_QA
-    displayName: "Rodar no ambiente de QA"
+    displayName: "Rodar em ambiente QA"
     type: boolean
     default: false
+  - name: overrideFileRun
+    displayName: "Execução manual - File to Run (opcional)"
+    type: string
+    default: ' '
 
 # A trigger será disparada para a branch master do reposítório de teste.
 # O ambiente que será executado (master ou qa) dependerá do artefato publicado pela pipeline anterior
@@ -94,6 +102,24 @@ stages:
             inputs:
               targetType: 'inline'
               script: npm run cy:verify
+
+          - task: Bash@3
+            displayName: "Resolver spec"
+            inputs:
+              targetType: 'inline'
+              script: |
+                if [ -n "$(echo "$OVERRIDE_FILE" | xargs)" ]; then  # xargs remove espaços - espaco em branco remove o required do parameter
+                  fileRun="$OVERRIDE_FILE"
+                else
+                  fileRun="$(specPattern)"
+                fi
+
+                echo "Arquivo resolvido: $fileRun"
+
+                # variável global para próximas tasks
+                echo "##vso[task.setvariable variable=FILE_RUN]$fileRun"
+            env:
+              OVERRIDE_FILE: ${{ parameters.overrideFileRun }}
           
           - task: CmdLine@2
             displayName: 'Debug - Print Variables'
@@ -106,15 +132,28 @@ stages:
                 echo "Reason: $(Build.Reason)"
                 echo "SourceBranchName: $(Build.SourceBranchName)"
                 echo "NOTIFY = $(NOTIFY)"
+                echo "NOTIFY_ON_SUCCESS = $(NOTIFY_ON_SUCCESS)"
+                echo "NOTIFY_ERR_TELEGRAM_SCHEENSHOT = $(NOTIFY_ERR_TELEGRAM_SCHEENSHOT)"
+                echo "NOTIFY_ERR_TELEGRAM_VIDEO = $(NOTIFY_ERR_TELEGRAM_VIDEO)"
                 echo "Build.BuildId: $(Build.BuildId)"
                 echo "Build.BuildNumber: $(Build.BuildNumber)"
                 echo "groupName: $(groupName)"
+                echo "Node Version: "
+                node -v
+                echo "specPattern: $(specPattern)"
+                echo "overrideFileRun: ${{ parameters.overrideFileRun }}"
+                echo "FileRun: $(FILE_RUN)"
+                echo "Dash Version:"
+                python3 -c "import dash; print(dash.__version__)"
                 
           # por motivos de boas práticas deve ser definido uma baseUrl para o cypress, 
           # por padrão o da master por isso apenas o qa deve ser trocado a baseUrl e url da api
           - task: Bash@3  # roda no QA
             displayName: 'QA - Cypress E2E tests'
-            condition: or(eq('${{ parameters.RUN_ON_QA }}', 'true'), and(eq(variables['TRIGGER_BRANCH'], 'refs/heads/qa'), eq(variables['Build.Reason'], 'ResourceTrigger')))
+            condition: or(
+              eq('${{ parameters.RUN_ON_QA }}', 'true'), 
+              and(eq(variables['TRIGGER_BRANCH'], 'refs/heads/qa'), eq(variables['Build.Reason'], 'ResourceTrigger'))
+              )
             inputs:
               targetType: 'inline'
               script: | 
@@ -141,12 +180,16 @@ stages:
                 npx cypress run \
                   --spec "$(specPattern)" \
                   --config baseUrl=$(baseUrl_QA) \
-                  --browser chrome \
                   --headless 
+# --browser chrome \                  
 
-          - task: Bash@3  # roda no portal
+          - task: Bash@3
             displayName: 'Master - Cypress E2E tests'
-            condition: or(and(eq(variables['Build.Reason'], 'Manual'), eq('${{ parameters.RUN_ON_QA }}', 'false')), and(eq(variables['TRIGGER_BRANCH'], 'refs/heads/master'), eq(variables['Build.Reason'], 'ResourceTrigger')))
+            condition: or(
+              and(
+                eq(variables['Build.Reason'], 'Manual'), eq('${{ parameters.RUN_ON_QA }}', 'false')), 
+                and(eq(variables['TRIGGER_BRANCH'], 'refs/heads/master'), eq(variables['Build.Reason'], 'ResourceTrigger'))
+              )
             inputs:
               targetType: 'inline'
               script: |
@@ -172,8 +215,8 @@ stages:
 
                 npx cypress run \
                   --spec "$(specPattern)" \
-                  --browser chrome \
                   --headless && ts-node cypress/scripts/generate-md.ts
+# --browser chrome \                   
 
 # npx cypress run --record --key $(CYPRESS_RECORD_KEY) --parallel --ci-build-id $BUILD_BUILDNUMBER --env... # run on cypress cloud
 
@@ -187,10 +230,14 @@ stages:
               testResultsFiles: 'cypress/results/**.xml'
               mergeTestResults: true
               failTaskOnFailedTests: true
+              failTaskOnFailureToPublishResults: true
+              searchFolder: '$(groupName)'
+              failTaskOnMissingResultsFile: true
+
 
 # pública o arquivo after_run-results.json, gerado no cypress, no cypress.config.ts > 'after:run'
           - task: PublishBuildArtifacts@1
-            displayName: "Publica after_run-results.json"
+            displayName: "Publica after_run-results.json" # arquivo com resultados de testes para notificações
             condition: succeededOrFailed()
             inputs:
               PathtoPublish: "$(System.DefaultWorkingDirectory)/cypress/fixtures/geral/tmp/monitoramento/after_run-results.json"
@@ -198,20 +245,22 @@ stages:
               publishLocation: "Container"
           
           # O processo de documentação pode ser ignorado, mudando a variable PUBLISH_DOC da library
-          # Encontra os testes de api, gerador pela task saveApiDoc()
-          # Publica a documentação, organizados conforme definido no path do saveApiDoc();
+          # 
+          # Processo: 
+          # Encontra os testes de api, gerador pela task saveApiDoc();
+          # Publica a documentação, organizados conforme definido no path do saveApiDoc().
           - task: Bash@3
             displayName: "Wiki Documentation"
             condition: and(
               succeededOrFailed(),
               eq(variables['PUBLISH_DOC'], 'true'),
               eq(variables['groupName'], 'backend')
-              ) # mesmo que falhe um teste do front/back, o que gerar de doc, atualiza
+              )
             inputs:
               targetType: 'inline'
               script: |
-                echo "📝 Publicando documentação na Wiki do Azure..."
-
+                echo ">>> Publicando documentação na Wiki do Azure, gerada em teste anterior..."
+                
                 if [ -z "$WIKI_API_NAME" ] || [ -z "$WIKI_API_VERSION" ] || [ -z "$WIKI_IDENTIFIER" ]; then
                   # -z = variável vazia ou não definida
                   echo "🚫 ERRO = Variáveis obrigatórias não informadas!"
@@ -221,19 +270,20 @@ stages:
                   
                   exit 1
                 fi
-                
-                CY_ROOT_DOCS_PATH="cypress/results/doc" # onde deve ser encontrados
 
-                WIKI_URL="$(System.TeamFoundationCollectionUri)$(System.TeamProject)/_apis/wiki/wikis/$(System.TeamProject).wiki"
+                CY_ROOT_DOCS_PATH="cypress/results/doc" # onde deve ser encontrado os documentos
+
+                # A necessidade de ter que tratar a URL aqui, e não ter deixado ela completa nas library é porque o POST para a pasta principal e sub-pastas são diferentes
+                WIKI_URL_APIS="$(System.TeamFoundationCollectionUri)$(System.TeamProject)/_apis/wiki/wikis/$(WIKI_IDENTIFIER).wiki"  # URL da _apis Wiki
                 WIKI_API_VERSION="$(WIKI_API_VERSION)"
+                WIKI_IDENTIFIER="$(WIKI_IDENTIFIER)"
 
                 # debug
                 echo "🔎 Debugger................"
                 echo "Collection URI = $(System.TeamFoundationCollectionUri)"
                 echo "Project       = $(System.TeamProject)"
                 echo "CY_ROOT_DOCS_PATH = $CY_ROOT_DOCS_PATH"
-                echo "WIKI_URL = $WIKI_URL"
-                echo "Listando docs:"
+                echo "WIKI_URL_APIS = $WIKI_URL_APIS"
 
                 # verifica se existe documento para publicar
                 # -d: é um diretório?
@@ -245,17 +295,22 @@ stages:
                   exit 1
                 fi
                 
-                # debug - imprime todos os arquivos marrkdown na pasta de documentos
+                # debug - imprime todos os arquivos markdown na pasta de documentos
                 # echo "Arquivos .md >>>"
                 # find "$CY_ROOT_DOCS_PATH" -type f -name "*.md"
                 
-                echo "📤 Processo de publicação de documentos 📤"
+                echo "📚 Processo de publicação de documentos..."
+                
+                # Para Azure DevOps - evita process substitution completamente - no final do while, é inserido no done <
+                # O find não pode ficar com o while porque eu preciso pegar a URL da Wiki, depois de publicada, não no while
+                # evita subshell
+                find "$CY_ROOT_DOCS_PATH" -type f -name "*.md" > /tmp/wiki_files.txt
                 
                 # Itera nos arquivos.md de documentação, para publicar
-                find "$CY_ROOT_DOCS_PATH" -type f -name "*.md" | while read -r file; do
+                while read -r file; do
                   echo "👉 Enviando arquivo $file"
 
-                  # 
+                  
                   RELATIVE_PATH=$(echo "$file" | sed "s|$CY_ROOT_DOCS_PATH||" | sed 's|.md$||')
                   WIKI_PATH="$(WIKI_API_NAME)/${RELATIVE_PATH#/}"
                   
@@ -277,10 +332,10 @@ stages:
                     if [ $i -lt $((NUM_PARTS - 1)) ]; then
                       echo "👉 Pasta sendo considerada = $CURRENT_PATH"
 
-                      # trata espaços, caracteres especiais, encoding em geral.
+                      # trata espaços, caracteres especiais, encoding em geral
                       SAFE_PATH=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$CURRENT_PATH'''))")
 
-                      PUT_URL="$WIKI_URL/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
+                      PUT_URL="$WIKI_URL_APIS/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
                       echo "🔗 PUT_URL = $PUT_URL"
 
                       status_pai=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -298,7 +353,7 @@ stages:
                         # Não existe a pasta pai
                         echo "👉 Será criado uma nova pasta = $CURRENT_PATH"
                         
-                        PUT_URL="$WIKI_URL/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
+                        PUT_URL="$WIKI_URL_APIS/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
                         
                         status_new_pai=$(curl -s -o /tmp/curl_response.json -w "%{http_code}" --max-time 60 -X PUT \
                           -u :$(AZURE_DEVOPS_PAT) \
@@ -313,12 +368,11 @@ stages:
 
                   # trata aspas, quebra de linha, encoding
                   CONTENT=$(jq -Rs . < "$file")
-                  # trata espaços, caracteres especiais, encoding em geral.
-                  SAFE_PATH=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$WIKI_PATH'''))")
-                  PUT_URL="$WIKI_URL/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
+                  # trata espaços, caracteres especiais, encoding em geral
+                  PUT_URL="$WIKI_URL_APIS/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
 
                   echo "👉 Criando/Atualizando página filho = $WIKI_PATH"
-                  echo "PUT_URL = $PUT_URL"
+                  echo "🔗 PUT_URL = $PUT_URL"
 
                   # Faz uma requisição GET para a pasta que se pretende publicar, caso exista a pasta, o etag será preenchido
                   # -D: imprime headers da resposta no stdout
@@ -339,7 +393,7 @@ stages:
                       "$PUT_URL")
 
                   else
-                    echo "♻️ Página existe, atualizando..."
+                    echo "🔄 Página existe, atualizando..."
 
                     status_final_file=$(curl -s -o /tmp/curl_response.json -w "%{http_code}" --max-time 60 -X PUT \
                       -u :$(AZURE_DEVOPS_PAT) \
@@ -356,22 +410,29 @@ stages:
                   
                   if [ "$status_final_file" -ne 200 ] && [ "$status_final_file" -ne 201 ]; then
                     echo "❌  Erro ao publicar página"
-                    echo "Response = $(cat /tmp/curl_response.json)"
+                    # echo "Response = $(cat /tmp/curl_response.json)"
+                    ls /tmp
                     exit 1
+
                   fi
 
-                  echo "✅ Página publicada:"
-                  echo "🔗 $(echo "$body" | jq -r '.remoteUrl')"
+                  WIKI_URL_AZURE=$(echo "$body" | jq -r '.remoteUrl') # URL da documentação publicada
 
-                done
+                  echo "✅ Documentação atualiza com sucesso!"  
+                  echo "🔗 $WIKI_URL_AZURE"
+
+                done < /tmp/wiki_files.txt
+
+                echo "##vso[task.setvariable variable=WIKI_URL_AZURE;isOutput=true]$WIKI_URL_AZURE"
+            name: documentationAPI
 
       - job: successNotifyTestResults
-        displayName: "Successo - Notificação Teams"
+        displayName: "Successo - Notificação"
         condition: and(succeeded(), and(eq(variables['NOTIFY'], 'true'), eq(variables['NOTIFY_ON_SUCCESS'], 'true')))
         dependsOn: CypressE2ETests # do job
         steps:
           - task: DownloadBuildArtifacts@1
-            displayName: "Baixa after_run-results.json"
+            displayName: "Baixa after_run-results.json" # baixa dados de testes, publicado em job anterior
             inputs:
               buildType: current
               downloadType: single
@@ -549,7 +610,7 @@ stages:
                 echo "Notificando erro via Teams..."
                 
                 echo "TEAMS_URL = $(TEAMS_URL)"
-                echo "Link do botão Ver no Telegram= $(TELEGRAM_URL_PORTAL_MONITORAMENTO)"
+                echo "Link do botão Ver no Telegram= $(TELEGRAM_URL_GROUP)"
                 echo "DASHBOARD_TESTS_RESULT = $(DASHBOARD_TESTS_RESULT)"
 
                 # extrai variáveis
@@ -624,7 +685,7 @@ stages:
                 echo "browserVersion = $browserVersion"
 
 
-                # ATENÇÃO:  São 2 payload de erro, a diferença é que um não tem o link para o telegram, no mais são identicos, ao editar, verifique ambos
+                # 🚨🚨🚨 ATENÇÃO:  São 2 payload de erro, a diferença é que um não tem o link para o telegram, no mais são identicos, ao editar, verifique ambos
                 # notifica
                 if [[ "$(NOTIFY_ERR_TELEGRAM_SCHEENSHOT)" == "true" || "$(NOTIFY_ERR_TELEGRAM_VIDEO)" == "true" ]]; then  # quando deve enviar o link do telegram
                   echo "Notificação de ERRO, com link do Telegram"
@@ -686,7 +747,7 @@ stages:
                             {
                               "type": "Action.OpenUrl",
                               "title": "📲 Ver no Telegram",
-                              "url": "$(TELEGRAM_URL_PORTAL_MONITORAMENTO)"
+                              "url": "$(TELEGRAM_URL_GROUP)"
                             }
                           ]
                         }
