@@ -165,12 +165,12 @@ Ao executar os testes de API:
 ```
 Cypress.Commands.add("do_something", () => {   
   const path = "/path/to/save/doc";   
-	const method = "GET";   
-	const url = "/endpoint";   
-	const headers = {   
-		"Content-Type": "application/json",   
-		"Authorization": `Bearer ${Cypress.env("accessToken")}`   
-	}
+  const method = "GET";   
+  const url = "/endpoint";   
+  const headers = {   
+    "Content-Type": "application/json",   
+    "Authorization": `Bearer ${Cypress.env("accessToken")}`   
+  }
     const headersDoc = {   
       "Content-Type": "application/json",   
       "Authorization": "Bearer {accessToken}"   
@@ -184,22 +184,22 @@ Cypress.Commands.add("do_something", () => {
       "foo": "bar"
     }   
    
-	cy.task("saveApiDocs", {   
-		path: path,   
-		method: method,   
-		url: url,   
-		headers: headersDoc,   
-		body: body,   
+  cy.task("saveApiDocs", {   
+    path: path,   
+    method: method,   
+    url: url,   
+    headers: headersDoc,   
+    body: body,   
         queryString: queryString   
-	});   
+  });   
    
-	return cy.api({   
-		method: method,   
-		url: '${Cypress.env("BASE_URL_API")}${url}',   
-		body: body,   
-		headers: headers,   
+  return cy.api({   
+    method: method,   
+    url: '${Cypress.env("BASE_URL_API")}${url}',   
+    body: body,   
+    headers: headers,   
         qs: queryString 
-	})
+  })
 })   
 ```
 
