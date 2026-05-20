@@ -119,7 +119,7 @@ jobs:
 
           CYPRESS_NOTIFY_ERR_TELEGRAM_SCHEENSHOT: ${{ vars.NOTIFY_ERR_TELEGRAM_SCHEENSHOT }}
           CYPRESS_NOTIFY_ERR_TELEGRAM_VIDEO: ${{ vars.NOTIFY_ERR_TELEGRAM_VIDEO }}
-          CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_BOT_ID_ARGUS_BOT }}
+          CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT: ${{ secrets.TELEGRAM_BOT_ID_ARGUS_BOT }}
           CYPRESS_TELEGRAM_CHAT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_CHAT_ID_ARGUS_BOT }}
 
           CYPRESS_AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
@@ -150,7 +150,7 @@ jobs:
 
           CYPRESS_NOTIFY_ERR_TELEGRAM_SCHEENSHOT: ${{ vars.NOTIFY_ERR_TELEGRAM_SCHEENSHOT }}
           CYPRESS_NOTIFY_ERR_TELEGRAM_VIDEO: ${{ vars.NOTIFY_ERR_TELEGRAM_VIDEO }}
-          CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_BOT_ID_ARGUS_BOT }}
+          CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT: ${{ secrets.TELEGRAM_BOT_ID_ARGUS_BOT }}
           CYPRESS_TELEGRAM_CHAT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_CHAT_ID_ARGUS_BOT }}
 
           CYPRESS_AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
@@ -189,7 +189,7 @@ jobs:
       # Encontra os testes de api, gerador pela task saveApiDoc();
       # Publica a documentação, organizados conforme definido no path do saveApiDoc().
       - name: "Wiki Documentation"
-        if: false() && vars.PUBLISH_DOC == 'true' && matrix.groupName == 'backend'
+        if: false && vars.PUBLISH_DOC == 'true' && matrix.groupName == 'backend'
         env:
           WIKI_API_NAME: ${{ vars.WIKI_API_NAME }}
           WIKI_API_VERSION: ${{ vars.WIKI_API_VERSION }}
@@ -338,7 +338,7 @@ jobs:
     name: "Successo - Notificação"
     runs-on: ubuntu-latest
     needs: CypressE2ETests
-    if: success() && secrets.NOTIFY == 'true' && secrets.NOTIFY_ON_SUCCESS == 'true'
+    if: success() && vars.NOTIFY == 'true' && vars.NOTIFY_ON_SUCCESS == 'true'
 
     steps:
       - name: "Baixa after_run-results.json"
@@ -350,7 +350,7 @@ jobs:
       - name: "Telegram"
         if: vars.NOTIFY_ON == 'TELEGRAM'
         env:
-          TELEGRAM_BOT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_BOT_ID_ARGUS_BOT }}
+          TELEGRAM_BOT_ID_ARGUS_BOT: ${{ secrets.TELEGRAM_BOT_ID_ARGUS_BOT }}
           TELEGRAM_CHAT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_CHAT_ID_ARGUS_BOT }}
         run: |
           echo "👉 Notificará sucesso..."
