@@ -25,7 +25,7 @@ env:
   # Set variables once
   DASHBOARD_TESTS_RESULT: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
   PIPELINE_TEST: "${{ github.workflow }} ${{ github.run_number }}"
-  TELEGRAM_POST: "https://api.telegram.org/${{ secrets.TELEGRAM_BOT_ID_ARGUS_BOT }}/sendMessage"
+  TELEGRAM_POST: "https://api.telegram.org/${{ vars.TELEGRAM_BOT_ID_ARGUS_BOT }}/sendMessage"
   TELEGRAM_URL_GROUP: "https://web.telegram.org/k/#${{ secrets.TELEGRAM_WEB_URL }}"
   TERM: xterm # evita warning no log no ci do cypress
 
@@ -131,7 +131,7 @@ jobs:
 
           CYPRESS_NOTIFY_ERR_TELEGRAM_SCHEENSHOT: ${{ vars.NOTIFY_ERR_TELEGRAM_SCHEENSHOT }}
           CYPRESS_NOTIFY_ERR_TELEGRAM_VIDEO: ${{ vars.NOTIFY_ERR_TELEGRAM_VIDEO }}
-          CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT: ${{ secrets.TELEGRAM_BOT_ID_ARGUS_BOT }}
+          CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_BOT_ID_ARGUS_BOT }}
           CYPRESS_TELEGRAM_CHAT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_CHAT_ID_ARGUS_BOT }}
 
           CYPRESS_AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
@@ -162,7 +162,7 @@ jobs:
 
           CYPRESS_NOTIFY_ERR_TELEGRAM_SCHEENSHOT: ${{ vars.NOTIFY_ERR_TELEGRAM_SCHEENSHOT }}
           CYPRESS_NOTIFY_ERR_TELEGRAM_VIDEO: ${{ vars.NOTIFY_ERR_TELEGRAM_VIDEO }}
-          CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT: ${{ secrets.TELEGRAM_BOT_ID_ARGUS_BOT }}
+          CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_BOT_ID_ARGUS_BOT }}
           CYPRESS_TELEGRAM_CHAT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_CHAT_ID_ARGUS_BOT }}
 
           CYPRESS_AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
@@ -362,7 +362,7 @@ jobs:
       - name: "Telegram"
         if: vars.NOTIFY_ON == 'TELEGRAM'
         env:
-          TELEGRAM_BOT_ID_ARGUS_BOT: ${{ secrets.TELEGRAM_BOT_ID_ARGUS_BOT }}
+          TELEGRAM_BOT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_BOT_ID_ARGUS_BOT }}
           TELEGRAM_CHAT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_CHAT_ID_ARGUS_BOT }}
         run: |
           echo "👉 Notificará sucesso..."
@@ -399,7 +399,7 @@ jobs:
             if [ "$key" = "baseUrl" ]; then
               baseUrl="$value"
             elif [ "$key" = "base_url_api" ]; then
-              base_url_api="$value"
+              base_url_api="${value:-N/A}"
             elif [ "$key" = "endedTestsAt" ]; then
               endedTestsAt="$value"
             elif [ "$key" = "totalDuration" ]; then
@@ -497,7 +497,7 @@ jobs:
             if [ "$key" = "baseUrl" ]; then
               baseUrl="$value"
             elif [ "$key" = "base_url_api" ]; then
-              base_url_api="$value"
+              base_url_api="${value:-N/A}"
             elif [ "$key" = "endedTestsAt" ]; then
               endedTestsAt="$value"
             elif [ "$key" = "totalDuration" ]; then
