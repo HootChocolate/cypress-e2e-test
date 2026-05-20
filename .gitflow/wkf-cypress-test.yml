@@ -1,788 +1,595 @@
-trigger: none
+# Pipeline de execução no Github Actions
 
-pool:
-  vmImage: ubuntu-latest
+name: Cypress E2E Tests
 
-# Set variables once
-variables:
-  - group: cypress-variables-seu-barriga
-  # - name: TRIGGER_BRANCH
-  #   value: $(resources.pipeline.app-delivery.sourceBranch) # pipeline que dispara a trigger
-  - name: DASHBOARD_TESTS_RESULT
-    value: "$(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)&view=ms.vss-test-web.build-test-results-tab"
-  - name: TELEGRAM_URL_GROUP
-    value: "https://web.telegram.org/k/#$(TELEGRAM_WEB_URL)"
+on:
+  workflow_dispatch:
+    inputs:
+      RUN_ON_QA:
+        description: "Rodar em ambiente QA"
+        required: false
+        default: false
+        type: boolean
 
-parameters:  
-  - name: RUN_ON_QA
-    displayName: "Rodar no ambiente de QA"
-    type: boolean
-    default: false
-    
+      overrideFileRun:
+        description: "Execução manual - File to Run (opcional)"
+        required: false
+        default: ' '
+        type: string
 
-# A trigger será disparada para a branch master do reposítório de teste.
-# O ambiente que será executado (master ou qa) dependerá do artefato publicado pela pipeline anterior
-# É necessário a tag para execuções via cron
-# resources:
-#   pipelines:
-#   - pipeline: app-delivery
-#     source: app-delivery # nome da pipeline referenciada pela resource
-#     trigger:
-#       tags:        # filtro usado para disparar está pipeline
-#       - trigger-cypress-test
-#       branches:
-#         include: 
-#         - refs/heads/qa
-#         - refs/heads/master
+env:
+  # Set variables once
+  DASHBOARD_TESTS_RESULT: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+  PIPELINE_TEST: "${{ github.workflow }} ${{ github.run_number }}"
+  TELEGRAM_POST: "https://api.telegram.org/${{ secrets.TELEGRAM_BOT_ID_ARGUS_BOT }}/sendMessage"
+  TELEGRAM_URL_GROUP: "https://web.telegram.org/k/#${{ secrets.TELEGRAM_WEB_URL }}"
+  TERM: xterm # evita warning no log no ci do cypress
 
-stages:
-  - stage: Test
-    jobs:
-      - job: CypressE2ETests
-        displayName: "Matrix - Run E2E Cypress Tests"
-        # container: cypress/browsers:latest # Use latest no version number
-        # browser:  chrome, possível definir em uma matrix mais de um browser, depois deve ser passado o browser no npx run e reports
-        #           quando existir publicação de resultados, deve ser passado o nome do browser no publish
-        #           cada browser executará a mesma quantidade de teste que estiverem no specPattern
-        strategy:
-          matrix: # cada groupName vai executar os arquivos que respeitem o specPattern
-            frontend:
-              groupName: frontend
-              specPattern: "cypress/e2e/**/*-frontend.cy.ts"
-            backend:
-              groupName: backend
-              specPattern: "cypress/e2e/**/*-backend.cy.ts"
-        steps:
-          - task: NodeTool@0
-            displayName: 'Install Node.js'
-            inputs:
-              versionSpec: '22.x'
+jobs:
+  CypressE2ETests:
+    name: "Matrix - Run E2E Cypress Tests"
+    runs-on: ubuntu-latest
 
-          - task: Bash@3
-            displayName: 'Install ts-node globally'
-            inputs:
-              targetType: 'inline'
-              script: npm install -g ts-node typescript
+    strategy:
+      matrix:
+        include:
+          # cada groupName vai executar os arquivos que respeitem o specPattern
+          - groupName: backend
+            specPattern: "cypress/e2e/**/*-backend.cy.ts"
 
-          - task: Bash@3
-            displayName: 'Install npm dependencies'
-            inputs:
-              targetType: 'inline'
-              script: npm install --force
-                
-          - task: CacheBeta@1
-            displayName: Cache npm packages
-            inputs:
-              key: npm | $(Agent.OS) | package-lock.json
-              path: /home/vsts/.npm
-              restoreKeys: npm | $(Agent.OS) | package-lock.json
+          - groupName: frontend
+            specPattern: "cypress/e2e/**/*-frontend.cy.ts"
 
-          - task: CacheBeta@1
-            displayName: Cache Cypress binary
-            inputs:
-              key: cypress | $(Agent.OS) | package-lock.json
-              path: /home/vsts/.cache/Cypress
-              restoreKeys: cypress | $(Agent.OS) | package-lock.json
-  
-          - task: Bash@3
-            displayName: 'Install npm dependencies'
-            inputs:
-              targetType: 'inline'
-              script: npm ci --prefer-offline
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-          - task: Bash@3
-            displayName: 'Cypress verify'
-            inputs:
-              targetType: 'inline'
-              script: npm run cy:verify
+      - name: "Define Node version"
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: 'Install ts-node globally'
+        run: npm install -g ts-node typescript
+
+      - name: 'Install npm dependencies'
+        run: npm install --force
+
+      - name: Cache npm packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      - name: Cache Cypress binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/Cypress
+          key: cypress-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            cypress-${{ runner.os }}-
+
+      - name: 'Install npm dependencies'
+        run: npm ci --prefer-offline
+
+      - name: 'Cypress verify'
+        run: npm run cy:verify
+
+      - name: 'Debug - Print Variables'
+        run: |
+          echo "⚙️ Debug variables ⚙️"
           
-          - task: CmdLine@2
-            displayName: 'Debug - Print Variables'
-            inputs:
-              script: |
-                echo "🔎 Debug variables"
-                echo "Pipeline.Workspace = $(Pipeline.Workspace)"
-                echo "BUILD_BUILDNUMBER = $BUILD_BUILDNUMBER"
-                echo "Trigger disparada a partir da branch: $(TRIGGER_BRANCH)"
-                echo "Reason: $(Build.Reason)"
-                echo "SourceBranchName: $(Build.SourceBranchName)"
-                echo "NOTIFY = $(NOTIFY)"
-                echo "Build.BuildId: $(Build.BuildId)"
-                echo "Build.BuildNumber: $(Build.BuildNumber)"
-                echo "groupName: $(groupName)"
-                
-          # por motivos de boas práticas deve ser definido uma baseUrl para o cypress, 
-          # por padrão o da master por isso apenas o qa deve ser trocado a baseUrl e url da api
-          - task: Bash@3  # roda no QA
-            displayName: 'QA - Cypress E2E tests'
-            condition: or(eq('${{ parameters.RUN_ON_QA }}', 'true'), and(eq(variables['TRIGGER_BRANCH'], 'refs/heads/qa'), eq(variables['Build.Reason'], 'ResourceTrigger')))
-            inputs:
-              targetType: 'inline'
-              script: | 
-                echo "QA - Executando testes..."
+          echo "GITHUB_WORKSPACE = $GITHUB_WORKSPACE"
+          echo "GITHUB_RUN_NUMBER = $GITHUB_RUN_NUMBER"
+          echo "Trigger disparada a partir da branch: $GITHUB_REF"
+          echo "Reason: $GITHUB_EVENT_NAME"
+          echo "SourceBranchName: $GITHUB_REF_NAME"
+          echo "NOTIFY = ${{ vars.NOTIFY }}"
+          echo "NOTIFY_ON = ${{ vars.NOTIFY_ON }}"
+          echo "NOTIFY_ON_SUCCESS = ${{ vars.NOTIFY_ON_SUCCESS }}"
+          echo "NOTIFY_ERR_TELEGRAM_SCHEENSHOT = ${{ vars.NOTIFY_ERR_TELEGRAM_SCHEENSHOT }}"
+          echo "NOTIFY_ERR_TELEGRAM_VIDEO = ${{ vars.NOTIFY_ERR_TELEGRAM_VIDEO }}"
+          echo "github.run_id: ${{ github.run_id }}"
+          echo "github.run_number: ${{ github.run_number }}"
+          echo "groupName: ${{ matrix.groupName }}"
+          echo "Node Version: "
+          node -v
+          echo "specPattern: ${{ matrix.specPattern }}"
+          echo "overrideFileRun: ${{ github.event.inputs.overrideFileRun }}"
+          echo "FileRun: ${{ github.event.inputs.overrideFileRun }}"
 
-                export CYPRESS_BASE_URL_API=$(BASE_URL_API)
-                export CYPRESS_BASE_URL_QA=$(BASE_URL_QA)
-                
-                export CYPRESS_SEU_BARRIGA_USERNAME=$(SEU_BARRIGA_USERNAME)
-                export CYPRESS_SEU_BARRIGA_EMAIL=$(SEU_BARRIGA_EMAIL)
-                export CYPRESS_SEU_BARRIGA_PASSWD=$(SEU_BARRIGA_PASSWD)
-                
-                export CYPRESS_RECORD_KEY=$(RECORD_KEY)
-                export CYPRESS_NOTIFY=$(NOTIFY)
-                export CYPRESS_NOTIFY_ON_SUCCESS=$(NOTIFY_ON_SUCCESS)
-                
-                export CYPRESS_NOTIFY_ERR_TELEGRAM_SCHEENSHOT=$(NOTIFY_ERR_TELEGRAM_SCHEENSHOT)
-                export CYPRESS_NOTIFY_ERR_TELEGRAM_VIDEO=$(NOTIFY_ERR_TELEGRAM_VIDEO)
-                export CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT=$(TELEGRAM_BOT_ID_ARGUS_BOT)
-                export CYPRESS_TELEGRAM_CHAT_ID_ARGUS_BOT=$(TELEGRAM_CHAT_ID_ARGUS_BOT)
+      # por motivos de boas práticas deve ser definido uma baseUrl para o cypress,
+      # por padrão o da master por isso apenas o qa deve ser trocado a baseUrl e url da api
+      - name: 'QA - Cypress E2E tests'
+        if: ${{ github.event.inputs.RUN_ON_QA == 'true' }}
+        env:
+          CYPRESS_BASE_URL_API: ${{ vars.BASE_URL_API }}
+          CYPRESS_BASE_URL_QA: ${{ vars.BASE_URL_QA }}
 
-                export CYPRESS_AZURE_DEVOPS_PAT=$(AZURE_DEVOPS_PAT)
+          CYPRESS_SEU_BARRIGA_USERNAME: ${{ vars.SEU_BARRIGA_USERNAME }}
+          CYPRESS_SEU_BARRIGA_EMAIL: ${{ vars.SEU_BARRIGA_EMAIL }}
+          CYPRESS_SEU_BARRIGA_PASSWD: ${{ secrets.SEU_BARRIGA_PASSWD }}
 
-                npx cypress run \
-                  --spec "$(specPattern)" \
-                  --config baseUrl=$(baseUrl_QA) \
-                  --browser chrome \
-                  --headless 
+          CYPRESS_RECORD_KEY: ${{ secrets.RECORD_KEY }}
+          CYPRESS_NOTIFY: ${{ vars.NOTIFY }}
+          CYPRESS_NOTIFY_ON: ${{ vars.NOTIFY_ON }}
+          CYPRESS_NOTIFY_ON_SUCCESS: ${{ vars.NOTIFY_ON_SUCCESS }}
 
-          - task: Bash@3  # roda no portal
-            displayName: 'Master - Cypress E2E tests'
-            condition: or(and(eq(variables['Build.Reason'], 'Manual'), eq('${{ parameters.RUN_ON_QA }}', 'false')), and(eq(variables['TRIGGER_BRANCH'], 'refs/heads/master'), eq(variables['Build.Reason'], 'ResourceTrigger')))
-            inputs:
-              targetType: 'inline'
-              script: |
-                echo "Master Executando testes..."
+          CYPRESS_NOTIFY_ERR_TELEGRAM_SCHEENSHOT: ${{ vars.NOTIFY_ERR_TELEGRAM_SCHEENSHOT }}
+          CYPRESS_NOTIFY_ERR_TELEGRAM_VIDEO: ${{ vars.NOTIFY_ERR_TELEGRAM_VIDEO }}
+          CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_BOT_ID_ARGUS_BOT }}
+          CYPRESS_TELEGRAM_CHAT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_CHAT_ID_ARGUS_BOT }}
 
-                export CYPRESS_BASE_URL_API=$(BASE_URL_API)
-                export CYPRESS_BASE_URL_QA=$(BASE_URL_QA)
-                
-                export CYPRESS_SEU_BARRIGA_USERNAME=$(SEU_BARRIGA_USERNAME)
-                export CYPRESS_SEU_BARRIGA_EMAIL=$(SEU_BARRIGA_EMAIL)
-                export CYPRESS_SEU_BARRIGA_PASSWD=$(SEU_BARRIGA_PASSWD)
-                
-                export CYPRESS_RECORD_KEY=$(RECORD_KEY)
-                export CYPRESS_NOTIFY=$(NOTIFY)
-                export CYPRESS_NOTIFY_ON_SUCCESS=$(NOTIFY_ON_SUCCESS)
-                
-                export CYPRESS_NOTIFY_ERR_TELEGRAM_SCHEENSHOT=$(NOTIFY_ERR_TELEGRAM_SCHEENSHOT)
-                export CYPRESS_NOTIFY_ERR_TELEGRAM_VIDEO=$(NOTIFY_ERR_TELEGRAM_VIDEO)
-                export CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT=$(TELEGRAM_BOT_ID_ARGUS_BOT)
-                export CYPRESS_TELEGRAM_CHAT_ID_ARGUS_BOT=$(TELEGRAM_CHAT_ID_ARGUS_BOT)
+          CYPRESS_AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
 
-                export CYPRESS_AZURE_DEVOPS_PAT=$(AZURE_DEVOPS_PAT)
+        run: |
+          echo "🤖 QA - Executando testes..."
 
-                npx cypress run \
-                  --spec "$(specPattern)" \
-                  --browser chrome \
-                  --headless && ts-node cypress/scripts/generate-md.ts
+          npx cypress run \
+            --spec "${{ matrix.specPattern }}" \
+            --config baseUrl=${{ vars.BASE_URL_QA }} \
+            --headless
+      # --browser chrome \
 
-# npx cypress run --record --key $(CYPRESS_RECORD_KEY) --parallel --ci-build-id $BUILD_BUILDNUMBER --env... # run on cypress cloud
+      - name: 'Master - Cypress E2E tests'
+        if: ${{ github.event.inputs.RUN_ON_QA != 'true' }}
+        env:
+          CYPRESS_BASE_URL_API: ${{ vars.BASE_URL_API }}
+          CYPRESS_BASE_URL_QA: ${{ vars.BASE_URL_QA }}
 
-# Publica o resultados de todos os testes, de todas as matrices -  É possível publicar separado os relatórios com o $(groupName)
-          - task: PublishTestResults@2  # publica o relatório xml para visualização da aba test no azure
-            displayName: 'Publish Tests results'
-            continueOnError: true
-            condition: succeededOrFailed()
-            inputs:
-              testResultsFormat: 'JUnit'
-              testResultsFiles: 'cypress/results/**.xml'
-              mergeTestResults: true
-              failTaskOnFailedTests: true
+          CYPRESS_SEU_BARRIGA_USERNAME: ${{ vars.SEU_BARRIGA_USERNAME }}
+          CYPRESS_SEU_BARRIGA_EMAIL: ${{ vars.SEU_BARRIGA_EMAIL }}
+          CYPRESS_SEU_BARRIGA_PASSWD: ${{ secrets.SEU_BARRIGA_PASSWD }}
 
-# pública o arquivo after_run-results.json, gerado no cypress, no cypress.config.ts > 'after:run'
-          - task: PublishBuildArtifacts@1
-            displayName: "Publica after_run-results.json"
-            condition: succeededOrFailed()
-            inputs:
-              PathtoPublish: "$(System.DefaultWorkingDirectory)/cypress/fixtures/geral/tmp/monitoramento/after_run-results.json"
-              ArtifactName: "afterRunResults"
-              publishLocation: "Container"
-          
-          # O processo de documentação pode ser ignorado, mudando a variable PUBLISH_DOC da library
-          # Encontra os testes de api, gerador pela task saveApiDoc()
-          # Publica a documentação, organizados conforme definido no path do saveApiDoc();
-          - task: Bash@3
-            displayName: "Wiki Documentation"
-            condition: and(
-              succeededOrFailed(),
-              eq(variables['PUBLISH_DOC'], 'true'),
-              eq(variables['groupName'], 'backend')
-              ) # mesmo que falhe um teste do front/back, o que gerar de doc, atualiza
-            inputs:
-              targetType: 'inline'
-              script: |
-                echo "📝 Publicando documentação na Wiki do Azure..."
+          CYPRESS_RECORD_KEY: ${{ secrets.RECORD_KEY }}
+          CYPRESS_NOTIFY: ${{ vars.NOTIFY }}
+          CYPRESS_NOTIFY_ON: ${{ vars.NOTIFY_ON }}
+          CYPRESS_NOTIFY_ON_SUCCESS: ${{ vars.NOTIFY_ON_SUCCESS }}
 
-                if [ -z "$WIKI_API_NAME" ] || [ -z "$WIKI_API_VERSION" ] || [ -z "$WIKI_IDENTIFIER" ]; then
-                  # -z = variável vazia ou não definida
-                  echo "🚫 ERRO = Variáveis obrigatórias não informadas!"
-                  echo "WIKI_API_NAME=$WIKI_API_NAME"
-                  echo "WIKI_API_VERSION=$WIKI_API_VERSION"
-                  echo "WIKI_IDENTIFIER=$WIKI_IDENTIFIER"
-                  
-                  exit 1
-                fi
-                
-                CY_ROOT_DOCS_PATH="cypress/results/doc" # onde deve ser encontrados
+          CYPRESS_NOTIFY_ERR_TELEGRAM_SCHEENSHOT: ${{ vars.NOTIFY_ERR_TELEGRAM_SCHEENSHOT }}
+          CYPRESS_NOTIFY_ERR_TELEGRAM_VIDEO: ${{ vars.NOTIFY_ERR_TELEGRAM_VIDEO }}
+          CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_BOT_ID_ARGUS_BOT }}
+          CYPRESS_TELEGRAM_CHAT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_CHAT_ID_ARGUS_BOT }}
 
-                WIKI_URL="$(System.TeamFoundationCollectionUri)$(System.TeamProject)/_apis/wiki/wikis/$(System.TeamProject).wiki"
-                WIKI_API_VERSION="$(WIKI_API_VERSION)"
+          CYPRESS_AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
 
-                # debug
-                echo "🔎 Debugger................"
-                echo "Collection URI = $(System.TeamFoundationCollectionUri)"
-                echo "Project       = $(System.TeamProject)"
-                echo "CY_ROOT_DOCS_PATH = $CY_ROOT_DOCS_PATH"
-                echo "WIKI_URL = $WIKI_URL"
-                echo "Listando docs:"
+        run: |
+          echo "🤖 Master Executando testes..."
 
-                # verifica se existe documento para publicar
-                # -d: é um diretório?
-                if [ -d "$CY_ROOT_DOCS_PATH" ]; then
-                  echo "👉 Documentos da pasta /doc:"
-                  ls -la "$CY_ROOT_DOCS_PATH"
-                else
-                  echo "❌ Erro na publicação de documentos, o repositório /doc não foi encontrado = $CY_ROOT_DOCS_PATH"
-                  exit 1
-                fi
-                
-                # debug - imprime todos os arquivos marrkdown na pasta de documentos
-                # echo "Arquivos .md >>>"
-                # find "$CY_ROOT_DOCS_PATH" -type f -name "*.md"
-                
-                echo "📤 Processo de publicação de documentos 📤"
-                
-                # Itera nos arquivos.md de documentação, para publicar
-                find "$CY_ROOT_DOCS_PATH" -type f -name "*.md" | while read -r file; do
-                  echo "👉 Enviando arquivo $file"
+          npx cypress run \
+            --spec "${{ matrix.specPattern }}" \
+            --headless && ts-node cypress/scripts/generate-md.ts
+      # --browser chrome \
 
-                  # 
-                  RELATIVE_PATH=$(echo "$file" | sed "s|$CY_ROOT_DOCS_PATH||" | sed 's|.md$||')
-                  WIKI_PATH="$(WIKI_API_NAME)/${RELATIVE_PATH#/}"
-                  
-                  echo "👉 Publicar arquivo do path = $WIKI_PATH"
+      # npx cypress run --record --key $(CYPRESS_RECORD_KEY) --parallel --ci-build-id $BUILD_BUILDNUMBER --env... # run on cypress cloud
 
-                  IFS='/' read -ra PATH_PARTS <<< "${WIKI_PATH#/}"
+      # Publica o resultados de todos os testes, de todas as matrices -  É possível publicar separado os relatórios com o $(groupName)
+      - name: 'Publish Tests results'
+        if: always()
+        uses: mikepenz/action-junit-report@v4
+        with:
+          report_paths: 'cypress/results/**.xml'
+          fail_on_failure: true
+          require_tests: true
+          detailed_summary: true
 
-                  CURRENT_PATH=""
-                  NUM_PARTS=${#PATH_PARTS[@]}
+      # pública o arquivo after_run-results.json, gerado no cypress, no cypress.config.ts > 'after:run'
+      - name: "Publica after_run-results.json"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: afterRunResults
+          path: cypress/fixtures/geral/tmp/monitoramento/after_run-results.json
 
-                  # itera nos arquivos criados do path/ para criar as pastas principais e conteúdos das pastas
-                  for i in "${!PATH_PARTS[@]}"; do
+      # O processo de documentação pode ser ignorado, mudando a variable PUBLISH_DOC da library
+      #
+      # Processo:
+      # Encontra os testes de api, gerador pela task saveApiDoc();
+      # Publica a documentação, organizados conforme definido no path do saveApiDoc().
+      - name: "Wiki Documentation"
+        if: false() && vars.PUBLISH_DOC == 'true' && matrix.groupName == 'backend'
+        env:
+          WIKI_API_NAME: ${{ vars.WIKI_API_NAME }}
+          WIKI_API_VERSION: ${{ vars.WIKI_API_VERSION }}
+          WIKI_IDENTIFIER: ${{ vars.WIKI_IDENTIFIER }}
+          AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
+        run: |
+          echo "📚 Publicando documentação na Wiki do Azure, gerada em teste anterior..."
 
-                    CURRENT_PATH="$CURRENT_PATH/${PATH_PARTS[i]}"
-                    
-                    echo "👉 File to Publish = $CURRENT_PATH"
+          if [ -z "$WIKI_API_NAME" ] || [ -z "$WIKI_API_VERSION" ] || [ -z "$WIKI_IDENTIFIER" ]; then
+            # -z = variável vazia ou não definida
+            echo "❌ ERRO = Variáveis obrigatórias não informadas!"
+            echo "WIKI_API_NAME=$WIKI_API_NAME"
+            echo "WIKI_API_VERSION=$WIKI_API_VERSION"
+            echo "WIKI_IDENTIFIER=$WIKI_IDENTIFIER"
 
-                    # Verifica se existe a pasta principal, cria caso não exista
-                    if [ $i -lt $((NUM_PARTS - 1)) ]; then
-                      echo "👉 Pasta sendo considerada = $CURRENT_PATH"
+            exit 1
+          fi
 
-                      # trata espaços, caracteres especiais, encoding em geral.
-                      SAFE_PATH=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$CURRENT_PATH'''))")
+          CY_ROOT_DOCS_PATH="cypress/results/doc" # onde deve ser encontrado os documentos
 
-                      PUT_URL="$WIKI_URL/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
-                      echo "🔗 PUT_URL = $PUT_URL"
+          # A necessidade de ter que tratar a URL aqui, e não ter deixado ela completa nas library é porque o POST para a pasta principal e sub-pastas são diferentes
+          WIKI_URL_APIS="${{ secrets.SYSTEM_TEAMFOUNDATIONCOLLECTIONURI }}${{ secrets.SYSTEM_TEAMPROJECT }}/_apis/wiki/wikis/$WIKI_IDENTIFIER.wiki"  # URL da _apis Wiki
+          WIKI_API_VERSION="$WIKI_API_VERSION"
+          WIKI_IDENTIFIER="$WIKI_IDENTIFIER"
 
-                      status_pai=$(curl -s -o /dev/null -w "%{http_code}" \
-                        -u :$(AZURE_DEVOPS_PAT) \
-                        -H "Content-Type: application/json" \
-                        "$PUT_URL")
+          echo "⚙️ Debug variables ⚙️"
+          echo "CY_ROOT_DOCS_PATH = $CY_ROOT_DOCS_PATH"
+          echo "WIKI_URL_APIS = $WIKI_URL_APIS"
 
-                      echo "👉 Status da pasta principal = $status_pai"
+          # verifica se existe documento para publicar
+          # -d: é um diretório?
+          if [ -d "$CY_ROOT_DOCS_PATH" ]; then
+            echo "👉 Documentos da pasta /doc:"
+            ls -la "$CY_ROOT_DOCS_PATH"
+          else
+            echo "❌ Erro na publicação de documentos, o repositório /doc não foi encontrado = $CY_ROOT_DOCS_PATH"
+            exit 1
+          fi
 
-                      if [ "$status_pai" -eq 200 ]; then
-                        # Existe a pasta pai
-                        echo "👉 Página pai já existe, pulando..."
+          echo "📚 Processo de publicação de documentos..."
 
-                      else
-                        # Não existe a pasta pai
-                        echo "👉 Será criado uma nova pasta = $CURRENT_PATH"
-                        
-                        PUT_URL="$WIKI_URL/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
-                        
-                        status_new_pai=$(curl -s -o /tmp/curl_response.json -w "%{http_code}" --max-time 60 -X PUT \
-                          -u :$(AZURE_DEVOPS_PAT) \
-                          -H "Content-Type: application/json" \
-                          -d "{\"content\": \"\"}" \
-                          "$PUT_URL")
+          find "$CY_ROOT_DOCS_PATH" -type f -name "*.md" > /tmp/wiki_files.txt
 
-                        echo "👉 Status da nova pasta criada = $status_new_pai"
-                      fi
-                    fi
-                  done
+          while read -r file; do
+            echo "👉 Enviando arquivo $file"
 
-                  # trata aspas, quebra de linha, encoding
-                  CONTENT=$(jq -Rs . < "$file")
-                  # trata espaços, caracteres especiais, encoding em geral.
-                  SAFE_PATH=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$WIKI_PATH'''))")
-                  PUT_URL="$WIKI_URL/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
+            RELATIVE_PATH=$(echo "$file" | sed "s|$CY_ROOT_DOCS_PATH||" | sed 's|.md$||')
+            WIKI_PATH="$(WIKI_API_NAME)/${RELATIVE_PATH#/}"
 
-                  echo "👉 Criando/Atualizando página filho = $WIKI_PATH"
-                  echo "PUT_URL = $PUT_URL"
+            echo "👉 Publicar arquivo do path = $WIKI_PATH"
 
-                  # Faz uma requisição GET para a pasta que se pretende publicar, caso exista a pasta, o etag será preenchido
-                  # -D: imprime headers da resposta no stdout
-                  etag=$(curl -s -D - \
-                    -u :$(AZURE_DEVOPS_PAT) \
-                    "$PUT_URL" | grep -i ETag | awk '{print $2}' | tr -d '\r') # Filtra apenas a linha que contém o ETag,  segunda linha (awk '{print $2}')
-                  
-                  # -s: não mostra barra de progresso)
-                  # -o /tmp/curl_response.json - response em um arquivo temporario
-                  # -w "%{http_code}" - pega apenas o status code
-                  if [ -z "$etag" ]; then #se $etag vazia - a pasta não existe
-                    echo "👉 Página não existe, criando..."
+            IFS='/' read -ra PATH_PARTS <<< "${WIKI_PATH#/}"
 
-                    status_final_file=$(curl -s -o /tmp/curl_response.json -w "%{http_code}" --max-time 60 -X PUT \
-                      -u :$(AZURE_DEVOPS_PAT) \
-                      -H "Content-Type: application/json" \
-                      -d "{\"content\": $CONTENT}" \
-                      "$PUT_URL")
+            CURRENT_PATH=""
+            NUM_PARTS=${#PATH_PARTS[@]}
 
-                  else
-                    echo "♻️ Página existe, atualizando..."
+            for i in "${!PATH_PARTS[@]}"; do
 
-                    status_final_file=$(curl -s -o /tmp/curl_response.json -w "%{http_code}" --max-time 60 -X PUT \
-                      -u :$(AZURE_DEVOPS_PAT) \
-                      -H "Content-Type: application/json" \
-                      -H "If-Match: $etag" \
-                      -d "{\"content\": $CONTENT}" \
-                      "$PUT_URL")
-                  fi
+              CURRENT_PATH="$CURRENT_PATH/${PATH_PARTS[i]}"
 
-                  body=$(cat /tmp/curl_response.json)
+              echo "👉 File to Publish = $CURRENT_PATH"
 
-                  echo "Status code final = $status_final_file"
-                  echo "Response body final =  $body"
-                  
-                  if [ "$status_final_file" -ne 200 ] && [ "$status_final_file" -ne 201 ]; then
-                    echo "❌  Erro ao publicar página"
-                    echo "Response = $(cat /tmp/curl_response.json)"
-                    exit 1
-                  fi
+              if [ $i -lt $((NUM_PARTS - 1)) ]; then
+                echo "👉 Pasta sendo considerada = $CURRENT_PATH"
 
-                  echo "✅ Página publicada:"
-                  echo "🔗 $(echo "$body" | jq -r '.remoteUrl')"
+                SAFE_PATH=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$CURRENT_PATH'''))")
 
-                done
+                PUT_URL="$WIKI_URL_APIS/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
+                echo "🔗 PUT_URL = $PUT_URL"
 
-      - job: successNotifyTestResults
-        displayName: "Successo - Notificação Teams"
-        condition: and(succeeded(), and(eq(variables['NOTIFY'], 'true'), eq(variables['NOTIFY_ON_SUCCESS'], 'true')))
-        dependsOn: CypressE2ETests # do job
-        steps:
-          - task: DownloadBuildArtifacts@1
-            displayName: "Baixa after_run-results.json"
-            inputs:
-              buildType: current
-              downloadType: single
-              artifactName: "afterRunResults"
-              downloadPath: "$(System.DefaultWorkingDirectory)"
-
-          - task: Bash@3
-            displayName: "Notifica Sucesso"
-            inputs:
-              targetType: 'inline'
-              script: | 
-                echo "Notificando sucesso no Teams..."
-                
-                echo "TEAMS_URL = $(TEAMS_URL)"
-                echo "DASHBOARD_TESTS_RESULT = $(DASHBOARD_TESTS_RESULT)"
-
-                # extrai variáveis
-                CY_RESULTS_FILE_PATH="$(System.DefaultWorkingDirectory)/afterRunResults/after_run-results.json"
-
-                if [ ! -s "$CY_RESULTS_FILE_PATH" ]; then
-                  echo "Arquivo $CY_RESULTS_FILE_PATH não encontrado ou vazio!"
-                  ls -lah "$(dirname "$CY_RESULTS_FILE_PATH")"
-                  exit 1
-                fi
-
-                baseUrl=''
-                base_url_api=''
-                endedTestsAt=''
-                totalDuration=''
-                totalPassed=''
-                totalFailed=''
-                totalSuites=''
-                totalTests=''
-                osName=''
-                cypressVersion=''
-                browserName=''
-                browserVersion=''
-
-                # itera sobre o results.json e atribui valor às variáveis
-                for key in $(jq -r 'keys[]' "$CY_RESULTS_FILE_PATH"); do
-                  value=$(jq -r --arg k "$key" '.[$k]' "$CY_RESULTS_FILE_PATH")
-
-                  if [ "$key" = "baseUrl" ]; then
-                    baseUrl="$value"
-                  elif [ "$key" = "base_url_api" ]; then
-                    base_url_api="$value"
-                  elif [ "$key" = "endedTestsAt" ]; then
-                    endedTestsAt="$value"
-                  elif [ "$key" = "totalDuration" ]; then
-                    totalDuration="$value"
-                  elif [ "$key" = "totalPassed" ]; then
-                    totalPassed="$value"
-                  elif [ "$key" = "totalFailed" ]; then
-                    totalFailed="$value"
-                  elif [ "$key" = "totalSuites" ]; then
-                    totalSuites="$value"
-                  elif [ "$key" = "totalTests" ]; then
-                    totalTests="$value"
-                  elif [ "$key" = "osName" ]; then
-                    osName="$value"
-                  elif [ "$key" = "cypressVersion" ]; then
-                    cypressVersion="$value"
-                  elif [ "$key" = "browserName" ]; then
-                    browserName="$value"
-                  elif [ "$key" = "browserVersion" ]; then
-                    browserVersion="$value"
-                  fi
-                done
-
-                echo "=== Variáveis extraídas ==="
-                
-                echo "baseUrl = $baseUrl"
-                echo "base_url_api = $base_url_api"
-                echo "endedTestsAt = $endedTestsAt"
-                echo "totalDuration = $totalDuration"
-                echo "totalPassed = $totalPassed"
-                echo "totalFailed = $totalFailed"
-                echo "totalSuites = $totalSuites"
-                echo "totalTests = $totalTests"
-                echo "osName = $osName"
-                echo "cypressVersion = $cypressVersion"
-                echo "browserName = $browserName"
-                echo "browserVersion = $browserVersion"
-
-                # <<EOF -heredoc, uma forma de escrever blocos de texto multilinha no shell
-                # Tudo que estiver entre <<EOF e EOF(pode ser qualquer palavra) será considerado texto literal
-                status_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$(TEAMS_URL)" \
+                status_pai=$(curl -s -o /dev/null -w "%{http_code}" \
+                  -u :$AZURE_DEVOPS_PAT \
                   -H "Content-Type: application/json" \
-                  -d @- <<EOF
-                {
-                  "type": "AdaptiveCard",
-                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                  "attachments": [
-                    {
-                      "contentType": "application/vnd.microsoft.card.adaptive",
-                      "content": {
-                        "type": "AdaptiveCard",
-                        "version": "1.2",
-                        "msteams": { "width": "Full" },
-                        "body": [
-                          {
-                            "type": "ColumnSet",
-                            "columns": [
-                              {
-                                "type": "Column",
-                                "width": "stretch",
-                                "items": [
-                                  {
-                                    "type": "TextBlock",
-                                    "text": " ✅ A execução dos testes E2E foi finalizado com Sucesso",
-                                    "wrap": true,
-                                    "spacing": "Small"
-                                  }
-                                ]
-                              }
-                            ]
-                          },
-                          {
-                            "type": "FactSet",
-                            "facts": [
-                              { "title": "🧪 Framework:", "value": "Cypress $cypressVersion" },
-                              { "title": "🖥️ Navegador", "value": "$browserName - $browserVersion" },
-                              { "title": "🌐 Servidor:", "value": "$baseUrl" },
-                              { "title": "📡 API:", "value": "$base_url_api" },
-                              { "title": "🔁 Pipeline:", "value": "$(Build.DefinitionName) $(Build.BuildId)" },
-                              { "title": "📊 Testes Executados:", "value": "$totalSuites Suites - $totalTests Testes" },
-                              { "title": "📅 Executado em:", "value": "$endedTestsAt" },
-                              { "title": "🕒 Tempo de Execução:", "value": "$totalDuration" }
-                            ]
-                          }
-                        ],
-                        "actions": [
-                          {
-                            "type": "Action.OpenUrl",
-                            "title": "📈 Results Dashboard",
-                            "url": "$(DASHBOARD_TESTS_RESULT)"
-                          }
-                        ]
-                      }
-                    }
-                  ]
-                }
-                EOF
-                )
+                  "$PUT_URL")
 
-                APPEND_STT_RESPONSE_CODE="- Status code esperado = 202, Status code retornado $status_code"
+                echo "👉 Status da pasta principal = $status_pai"
 
-                if [ "$status_code" -ne 202 ]; then
-                  echo "Erro no envio de mensagem $APPEND_STT_RESPONSE_CODE"
-                  exit 1
+                if [ "$status_pai" -eq 200 ]; then
+                  echo "👉 Página pai já existe, pulando..."
+
                 else
-                  echo "Mensagem enviada com sucesso $APPEND_STT_RESPONSE_CODE"
-                fi
+                  echo "👉 Será criado uma nova pasta = $CURRENT_PATH"
 
-      # Job de teste falhou e está marcado para notificar
-      - job: failNotifyTestResults
-        dependsOn: CypressE2ETests # do job
-        displayName: "Erro - Notificação Teams"
-        condition: and(failed(), eq(variables['NOTIFY'], 'true'))
-        steps:
-          - task: DownloadBuildArtifacts@1
-            displayName: "Baixa after_run-results.json"
-            inputs:
-              buildType: current
-              downloadType: single
-              artifactName: "afterRunResults"
-              downloadPath: "$(System.DefaultWorkingDirectory)"
+                  PUT_URL="$WIKI_URL_APIS/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
 
-            
-          - task: Bash@3
-            displayName: 'Envia notificação'
-            inputs:
-              targetType: 'inline'
-              script: | 
-                echo "Notificando erro via Teams..."
-                
-                echo "TEAMS_URL = $(TEAMS_URL)"
-                echo "Link do botão Ver no Telegram= $(TELEGRAM_URL_GROUP)"
-                echo "DASHBOARD_TESTS_RESULT = $(DASHBOARD_TESTS_RESULT)"
-
-                # extrai variáveis
-                CY_RESULTS_FILE_PATH="$(System.DefaultWorkingDirectory)/afterRunResults/after_run-results.json"
-
-                if [ ! -s "$CY_RESULTS_FILE_PATH" ]; then
-                  echo "Arquivo $CY_RESULTS_FILE_PATH não encontrado ou vazio!"
-                  ls -lah "$(dirname "$CY_RESULTS_FILE_PATH")"
-                  exit 1
-                fi
-
-                echo "=== Conteúdo do arquivo ==="
-                cat "$CY_RESULTS_FILE_PATH" | jq
-
-                baseUrl=''
-                base_url_api=''
-                endedTestsAt=''
-                totalDuration=''
-                totalPassed=''
-                totalFailed=''
-                totalSuites=''
-                totalTests=''
-                osName=''
-                cypressVersion=''
-                browserName=''
-                browserVersion=''
-
-                # itera sobre o results.json e atribui valor às variáveis
-                for key in $(jq -r 'keys[]' "$CY_RESULTS_FILE_PATH"); do
-                  value=$(jq -r --arg k "$key" '.[$k]' "$CY_RESULTS_FILE_PATH")
-
-                  if [ "$key" = "baseUrl" ]; then
-                    baseUrl="$value"
-                  elif [ "$key" = "base_url_api" ]; then
-                    base_url_api="$value"
-                  elif [ "$key" = "endedTestsAt" ]; then
-                    endedTestsAt="$value"
-                  elif [ "$key" = "totalDuration" ]; then
-                    totalDuration="$value"
-                  elif [ "$key" = "totalPassed" ]; then
-                    totalPassed="$value"
-                  elif [ "$key" = "totalFailed" ]; then
-                    totalFailed="$value"
-                  elif [ "$key" = "totalSuites" ]; then
-                    totalSuites="$value"
-                  elif [ "$key" = "totalTests" ]; then
-                    totalTests="$value"
-                  elif [ "$key" = "osName" ]; then
-                    osName="$value"
-                  elif [ "$key" = "cypressVersion" ]; then
-                    cypressVersion="$value"
-                  elif [ "$key" = "browserName" ]; then
-                    browserName="$value"
-                  elif [ "$key" = "browserVersion" ]; then
-                    browserVersion="$value"
-                  fi
-                done
-
-                echo "=== Variáveis extraídas ==="
-                
-                echo "baseUrl = $baseUrl"
-                echo "base_url_api = $base_url_api"
-                echo "endedTestsAt = $endedTestsAt"
-                echo "totalDuration = $totalDuration"
-                echo "totalPassed = $totalPassed"
-                echo "totalFailed = $totalFailed"
-                echo "totalSuites = $totalSuites"
-                echo "totalTests = $totalTests"
-                echo "osName = $osName"
-                echo "cypressVersion = $cypressVersion"
-                echo "browserName = $browserName"
-                echo "browserVersion = $browserVersion"
-
-
-                # ATENÇÃO:  São 2 payload de erro, a diferença é que um não tem o link para o telegram, no mais são identicos, ao editar, verifique ambos
-                # notifica
-                if [[ "$(NOTIFY_ERR_TELEGRAM_SCHEENSHOT)" == "true" || "$(NOTIFY_ERR_TELEGRAM_VIDEO)" == "true" ]]; then  # quando deve enviar o link do telegram
-                  echo "Notificação de ERRO, com link do Telegram"
-
-                  # <<EOF -heredoc, uma forma de escrever blocos de texto multilinha no shell
-                  # Tudo que estiver entre <<EOF e EOF(pode ser qualquer palavra) será considerado texto literal
-                  response=$(curl -s -w "\n%{http_code}" -X POST "$(TEAMS_URL)" \
+                  status_new_pai=$(curl -s -o /tmp/curl_response.json -w "%{http_code}" --max-time 60 -X PUT \
+                    -u :$AZURE_DEVOPS_PAT \
                     -H "Content-Type: application/json" \
-                    -d '{
-                    "type": "AdaptiveCard",
-                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                    "attachments": [
-                      {
-                        "contentType": "application/vnd.microsoft.card.adaptive",
-                        "content": {
-                          "type": "AdaptiveCard",
-                          "version": "1.2",
-                          "msteams": { "width": "Full" },
-                          "body": [
+                    -d "{\"content\": \"\"}" \
+                    "$PUT_URL")
+
+                  echo "👉 Status da nova pasta criada = $status_new_pai"
+                fi
+              fi
+            done
+
+            CONTENT=$(jq -Rs . < "$file")
+            PUT_URL="$WIKI_URL_APIS/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
+
+            echo "👉 Criando/Atualizando página filho = $WIKI_PATH"
+            echo "🔗 PUT_URL = $PUT_URL"
+
+            etag=$(curl -s -D - \
+              -u :$AZURE_DEVOPS_PAT \
+              "$PUT_URL" | grep -i ETag | awk '{print $2}' | tr -d '\r')
+
+            if [ -z "$etag" ]; then
+              echo "👉 Página não existe, criando..."
+
+              status_final_file=$(curl -s -o /tmp/curl_response.json -w "%{http_code}" --max-time 60 -X PUT \
+                -u :$AZURE_DEVOPS_PAT \
+                -H "Content-Type: application/json" \
+                -d "{\"content\": $CONTENT}" \
+                "$PUT_URL")
+
+            else
+              echo "🔄 Página existe, atualizando..."
+
+              status_final_file=$(curl -s -o /tmp/curl_response.json -w "%{http_code}" --max-time 60 -X PUT \
+                -u :$AZURE_DEVOPS_PAT \
+                -H "Content-Type: application/json" \
+                -H "If-Match: $etag" \
+                -d "{\"content\": $CONTENT}" \
+                "$PUT_URL")
+            fi
+
+            body=$(cat /tmp/curl_response.json)
+
+            echo "Status code final = $status_final_file"
+            echo "Response body final =  $body"
+
+            if [ "$status_final_file" -ne 200 ] && [ "$status_final_file" -ne 201 ]; then
+              echo "❌  Erro ao publicar página"
+              ls /tmp
+              exit 1
+            fi
+
+            WIKI_URL_AZURE=$(echo "$body" | jq -r '.remoteUrl')
+
+            echo "✅ Documentação atualiza com sucesso!"
+            echo "🔗 $WIKI_URL_AZURE"
+
+          done < /tmp/wiki_files.txt
+
+  NotifyTestResults:
+    name: "Successo - Notificação"
+    runs-on: ubuntu-latest
+    needs: CypressE2ETests
+    if: success() && secrets.NOTIFY == 'true' && secrets.NOTIFY_ON_SUCCESS == 'true'
+
+    steps:
+      - name: "Baixa after_run-results.json"
+        uses: actions/download-artifact@v4
+        with:
+          name: afterRunResults
+          path: ./afterRunResults
+
+      - name: "Telegram"
+        if: vars.NOTIFY_ON == 'TELEGRAM'
+        env:
+          TELEGRAM_BOT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_BOT_ID_ARGUS_BOT }}
+          TELEGRAM_CHAT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_CHAT_ID_ARGUS_BOT }}
+        run: |
+          echo "👉 Notificará sucesso..."
+
+          # Valida variáveis required para o fluxo
+          if [ -z "$TELEGRAM_BOT_ID_ARGUS_BOT" ] || [ -z "$TELEGRAM_CHAT_ID_ARGUS_BOT" ]; then
+            # -z = variável vazia ou não definida
+            echo "❌ ERRO = Variáveis obrigatórias não informadas!"
+            echo "TELEGRAM_BOT_ID_ARGUS_BOT=$TELEGRAM_BOT_ID_ARGUS_BOT"
+            echo "TELEGRAM_CHAT_ID_ARGUS_BOT=$TELEGRAM_CHAT_ID_ARGUS_BOT"
+            exit 1
+          fi
+
+          echo "⚙️ Debug variables ⚙️"
+
+          echo "TELEGRAM_CHAT_ID_ARGUS_BOT = $TELEGRAM_CHAT_ID_ARGUS_BOT"
+          echo "TELEGRAM_BOT_ID_ARGUS_BOT = $TELEGRAM_BOT_ID_ARGUS_BOT"
+          echo "TELEGRAM_POST = $TELEGRAM_POST"
+          echo "DASHBOARD_TESTS_RESULT = $DASHBOARD_TESTS_RESULT"
+
+          # extrai variáveis
+          CY_RESULTS_FILE_PATH="./afterRunResults/after_run-results.json"
+
+          if [ ! -s "$CY_RESULTS_FILE_PATH" ]; then
+            echo "❌ Arquivo $CY_RESULTS_FILE_PATH não encontrado ou vazio!"
+            ls -lah "$(dirname "$CY_RESULTS_FILE_PATH")"
+            exit 1
+          fi
+
+          # itera sobre o results.json e atribui valor às variáveis
+          for key in $(jq -r 'keys[]' "$CY_RESULTS_FILE_PATH"); do
+            value=$(jq -r --arg k "$key" '.[$k]' "$CY_RESULTS_FILE_PATH")
+
+            if [ "$key" = "baseUrl" ]; then
+              baseUrl="$value"
+            elif [ "$key" = "base_url_api" ]; then
+              base_url_api="$value"
+            elif [ "$key" = "endedTestsAt" ]; then
+              endedTestsAt="$value"
+            elif [ "$key" = "totalDuration" ]; then
+              totalDuration="$value"
+            elif [ "$key" = "totalPassed" ]; then
+              totalPassed="$value"
+            elif [ "$key" = "totalFailed" ]; then
+              totalFailed="$value"
+            elif [ "$key" = "totalSuites" ]; then
+              totalSuites="$value"
+            elif [ "$key" = "totalTests" ]; then
+              totalTests="$value"
+            elif [ "$key" = "osName" ]; then
+              osName="$value"
+            elif [ "$key" = "cypressVersion" ]; then
+              cypressVersion="$value"
+            elif [ "$key" = "browserName" ]; then
+              browserName="$value"
+            elif [ "$key" = "browserVersion" ]; then
+              browserVersion="$value"
+            fi
+          done
+
+          echo "⚙️ Debug variables ⚙️"
+
+          echo "baseUrl = $baseUrl"
+          echo "base_url_api = $base_url_api"
+          echo "endedTestsAt = $endedTestsAt"
+          echo "totalDuration = $totalDuration"
+          echo "totalPassed = $totalPassed"
+          echo "totalFailed = $totalFailed"
+          echo "totalSuites = $totalSuites"
+          echo "totalTests = $totalTests"
+          echo "osName = $osName"
+          echo "cypressVersion = $cypressVersion"
+          echo "browserName = $browserName"
+          echo "browserVersion = $browserVersion"
+
+          echo "🚀 Enviando mensagem..."
+
+          response=$(curl -s -w "\n%{http_code}" -X POST "$TELEGRAM_POST" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "chat_id": "'"$TELEGRAM_CHAT_ID_ARGUS_BOT"'",
+              "parse_mode": "HTML",
+              "text": "✅ <b>Testes executados com sucesso!</b>\
+          🧪 <b>Framework:</b> Cypress '"$cypressVersion"'\
+          🖥️ <b>Navegador:</b> '"$browserName"' - '"$browserVersion"'\
+          🌐 <b>Servidor:</b> '"$baseUrl"'\
+          📡 <b>API:</b> '"$base_url_api"'\
+          🔁 <b>Pipeline:</b> ${{ github.workflow }} ${{ github.run_number }}\
+          📊 <b>Testes executados:</b> '"$totalSuites"' Suites - '"$totalTests"' Testes\
+          📅 <b>Executado em:</b> '"$endedTestsAt"'\
+          📈 <a href=\"'"$DASHBOARD_TESTS_RESULT"'\">Results Dashboard</a>"
+            }'
+          )
+
+          responseBody=$(echo "$response" | sed '$d')
+          status_code=$(echo "$response" | tail -n1)
+
+          echo "Status Code: $status_code"
+
+          if [ "$status_code" -ne 200 ]; then
+            echo "❌ Erro ao enviar mensagem para o Teams"
+            echo "Response body:"
+            echo "$responseBody"
+            exit 1
+          else
+            echo "✅ Mensagem enviada com sucesso"
+          fi
+
+      - name: "Teams"
+        if: vars.NOTIFY_ON == 'TEAMS'
+        env:
+          TEAMS_URL: ${{ vars.TEAMS_URL }}
+        run: |
+          echo "Notificando sucesso..."
+
+          echo "TEAMS_URL = $TEAMS_URL"
+          echo "DASHBOARD_TESTS_RESULT = $DASHBOARD_TESTS_RESULT"
+
+          # extrai variáveis
+          CY_RESULTS_FILE_PATH="./afterRunResults/after_run-results.json"
+
+          if [ ! -s "$CY_RESULTS_FILE_PATH" ]; then
+            echo "Arquivo $CY_RESULTS_FILE_PATH não encontrado ou vazio!"
+            ls -lah "$(dirname "$CY_RESULTS_FILE_PATH")"
+            exit 1
+          fi
+
+          # itera sobre o results.json e atribui valor às variáveis
+          for key in $(jq -r 'keys[]' "$CY_RESULTS_FILE_PATH"); do
+            value=$(jq -r --arg k "$key" '.[$k]' "$CY_RESULTS_FILE_PATH")
+
+            if [ "$key" = "baseUrl" ]; then
+              baseUrl="$value"
+            elif [ "$key" = "base_url_api" ]; then
+              base_url_api="$value"
+            elif [ "$key" = "endedTestsAt" ]; then
+              endedTestsAt="$value"
+            elif [ "$key" = "totalDuration" ]; then
+              totalDuration="$value"
+            elif [ "$key" = "totalPassed" ]; then
+              totalPassed="$value"
+            elif [ "$key" = "totalFailed" ]; then
+              totalFailed="$value"
+            elif [ "$key" = "totalSuites" ]; then
+              totalSuites="$value"
+            elif [ "$key" = "totalTests" ]; then
+              totalTests="$value"
+            elif [ "$key" = "osName" ]; then
+              osName="$value"
+            elif [ "$key" = "cypressVersion" ]; then
+              cypressVersion="$value"
+            elif [ "$key" = "browserName" ]; then
+              browserName="$value"
+            elif [ "$key" = "browserVersion" ]; then
+              browserVersion="$value"
+            fi
+          done
+
+          echo "⚙️ Debug variables ⚙️"
+
+          echo "baseUrl = $baseUrl"
+          echo "base_url_api = $base_url_api"
+          echo "endedTestsAt = $endedTestsAt"
+          echo "totalDuration = $totalDuration"
+          echo "totalPassed = $totalPassed"
+          echo "totalFailed = $totalFailed"
+          echo "totalSuites = $totalSuites"
+          echo "totalTests = $totalTests"
+          echo "osName = $osName"
+          echo "cypressVersion = $cypressVersion"
+          echo "browserName = $browserName"
+          echo "browserVersion = $browserVersion"
+
+          # <<EOF -heredoc, uma forma de escrever blocos de texto multilinha no shell
+          # Tudo que estiver entre <<EOF e EOF(pode ser qualquer palavra) será considerado texto literal
+          status_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$TEAMS_URL" \
+            -H "Content-Type: application/json" \
+            -d @- <<EOF
+          {
+            "type": "AdaptiveCard",
+            "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                  "type": "AdaptiveCard",
+                  "version": "1.2",
+                  "msteams": { "width": "Full" },
+                  "body": [
+                    {
+                      "type": "ColumnSet",
+                      "columns": [
+                        {
+                          "type": "Column",
+                          "width": "stretch",
+                          "items": [
                             {
-                              "type": "ColumnSet",
-                              "columns": [
-                                {
-                                  "type": "Column",
-                                  "width": "stretch",
-                                  "items": [
-                                    {
-                                      "type": "TextBlock",
-                                      "text": "❌ Atenção: Os testes E2E com Cypress foram concluídos, mas algumas falhas foram detectadas.",
-                                      "wrap": true,
-                                      "spacing": "Small"
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "type": "FactSet",
-                              "facts": [
-                                { "title": "🧪 Framework:", "value": "Cypress $cypressVersion" },
-                                { "title": "🖥️ Navegador", "value": "$browserName - $browserVersion" },
-                                { "title": "🌐 Servidor:", "value": "$baseUrl" },
-                                { "title": "📡 API:", "value": "$base_url_api" },
-                                { "title": "🔁 Pipeline:", "value": "$(PIPELINE_TEST)" },
-                                { "title": "📊 Testes Executados:", "value": "$totalSuites Suites - $totalTests Testes" },
-                                { "title": "🟢 Testes com sucesso:", "value": "$totalPassed" },
-                                { "title": "🔴 Testes com erro:", "value": "$totalFailed" },
-                                { "title": "📅 Executado em:", "value": "$endedTestsAt" },
-                                { "title": "🕒 Tempo de Execução:", "value": "$totalDuration" }
-                              ]
-                            }
-                          ],
-                          "actions": [
-                            {
-                              "type": "Action.OpenUrl",
-                              "title": "📈 Results Dashboard",
-                              "url": "$(DASHBOARD_TESTS_RESULT)"
-                            },
-                            {
-                              "type": "Action.OpenUrl",
-                              "title": "📲 Ver no Telegram",
-                              "url": "$(TELEGRAM_URL_GROUP)"
+                              "type": "TextBlock",
+                              "text": " ✅ A execução dos testes E2E foi finalizado com Sucesso",
+                              "wrap": true,
+                              "spacing": "Small"
                             }
                           ]
                         }
-                      }
-                    ]
-                  }')
-
-                  responseBody=$(echo "$response" | sed '$d')
-                  status_code=$(echo "$response" | tail -n1)
-
-                  echo "Status Code: $status_code"
-
-                  if [ "$status_code" -ne 202 ]; then
-                    echo "❌ Erro ao enviar mensagem para o Teams"
-                    echo "Response body:"
-                    echo "$responseBody"
-                    exit 1
-                  else
-                    echo "✅ Mensagem enviada com sucesso"
-                  fi
-
-                else # quando NÃO deve enviar o link do telegram
-
-                  echo "Notificação de ERRO, SEM link do Telegram"
-
-                  response=$(curl -s -w "\n%{http_code}" -X POST "$(TEAMS_URL)" \
-                    -H "Content-Type: application/json" \
-                    -d '{
-                      "type": "AdaptiveCard",
-                      "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                      "attachments": [
-                        {
-                          "contentType": "application/vnd.microsoft.card.adaptive",
-                          "content": {
-                            "type": "AdaptiveCard",
-                            "version": "1.2",
-                            "msteams": { "width": "Full" },
-                            "body": [
-                              {
-                                "type": "ColumnSet",
-                                "columns": [
-                                  {
-                                    "type": "Column",
-                                    "width": "stretch",
-                                    "items": [
-                                      {
-                                        "type": "TextBlock",
-                                        "text": "❌ Atenção: Os testes E2E com Cypress foram concluídos, mas algumas falhas foram detectadas.",
-                                        "wrap": true,
-                                        "spacing": "Small"
-                                      }
-                                    ]
-                                  }
-                                ]
-                              },
-                              {
-                                "type": "FactSet",
-                                "facts": [
-                                  { "title": "🧪 Framework:", "value": "Cypress $cypressVersion" },
-                                  { "title": "🖥️ Navegador", "value": "$browserName - $browserVersion" },
-                                  { "title": "🌐 Servidor:", "value": "$baseUrl" },
-                                  { "title": "📡 API:", "value": "$base_url_api" },
-                                  { "title": "🔁 Pipeline:", "value": "$(PIPELINE_TEST)" },
-                                  { "title": "📊 Testes Executados:", "value": "$totalSuites Suites - $totalTests Testes" },
-                                  { "title": "🟢 Testes com sucesso:", "value": "$totalPassed" },
-                                  { "title": "🔴 Testes com erro:", "value": "$totalFailed" },
-                                  { "title": "📅 Executado em:", "value": "$endedTestsAt" },
-                                  { "title": "🕒 Tempo de Execução:", "value": "$totalDuration" }
-                                ]
-                              }
-                            ],
-                            "actions": [
-                              {
-                                "type": "Action.OpenUrl",
-                                "title": "📈 Results Dashboard",
-                                "url": "$(DASHBOARD_TESTS_RESULT)"
-                              }
-                            ]
-                          }
-                        }
                       ]
-                    }')
+                    },
+                    {
+                      "type": "FactSet",
+                      "facts": [
+                        { "title": "🧪 Framework:", "value": "Cypress $cypressVersion" },
+                        { "title": "🖥️ Navegador", "value": "$browserName - $browserVersion" },
+                        { "title": "🌐 Servidor:", "value": "$baseUrl" },
+                        { "title": "📡 API:", "value": "$base_url_api" },
+                        { "title": "🔁 Pipeline:", "value": "${{ github.workflow }} ${{ github.run_number }}" },
+                        { "title": "📊 Testes Executados:", "value": "$totalSuites Suites - $totalTests Testes" },
+                        { "title": "📅 Executado em:", "value": "$endedTestsAt" },
+                        { "title": "🕒 Tempo de Execução:", "value": "$totalDuration" }
+                      ]
+                    }
+                  ],
+                  "actions": [
+                    {
+                      "type": "Action.OpenUrl",
+                      "title": "📈 Results Dashboard",
+                      "url": "$DASHBOARD_TESTS_RESULT"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+          EOF
+          )
 
-                  # separa body e status code
-                  body=$(echo "$response" | sed '$d')
-                  status_code=$(echo "$response" | tail -n1)
+          APPEND_STT_RESPONSE_CODE="- Status code esperado = 202, Status code retornado $status_code"
 
-                  echo "Status Code: $status_code"
-
-                  # validação
-                  if [ "$status_code" -ne 202 ]; then
-                    echo "❌ Erro ao enviar mensagem para o Teams"
-                    echo "Response body:"
-                    echo "$body"
-                    exit 1
-                  else
-                    echo "✅ Mensagem enviada com sucesso"
-                  fi
+          if [ "$status_code" -ne 202 ]; then
+            echo "Erro no envio de mensagem $APPEND_STT_RESPONSE_CODE"
+            exit 1
+          else
+            echo "Mensagem enviada com sucesso $APPEND_STT_RESPONSE_CODE"
+          fi
