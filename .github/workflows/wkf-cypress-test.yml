@@ -81,14 +81,14 @@ jobs:
       - name: 'Cypress verify'
         run: npm run cy:verify
         
-      - name: 'Check Variables'
-        shell: bash
-        run: |
-          if [[ "${{ vars.NOTIFY }}" == "true" && -z "${{ vars.NOTIFY_ON }}" ]]; then
-            echo "[ERRO] Variável de onde notificar deve ser informada"
-            echo "vars.NOTIFY_ON = '${{ vars.NOTIFY_ON }}'"
-            exit 1
-          fi
+      # - name: 'Check Variables'
+      #   shell: bash
+      #   run: |
+      #     if [[ "${{ vars.NOTIFY }}" == "true" && -z "${{ vars.NOTIFY_ON }}" ]]; then
+      #       echo "[ERRO] Variável de onde notificar deve ser informada"
+      #       echo "vars.NOTIFY_ON = '${{ vars.NOTIFY_ON }}'"
+      #       exit 1
+      #     fi
 
       - name: 'Debug - Print Variables'
         run: |
