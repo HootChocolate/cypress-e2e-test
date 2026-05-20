@@ -9,7 +9,7 @@
 
 ## Fluxograma
 
-![Fluxo da Pipeline](cypress/fixtures/geral/imagens/cy-flow-ci.png)
+![Fluxo da Pipeline](cypress/fixtures/geral/imagens/cy-flow.png)
 
 ## 🔄 Execução da Pipeline
 
