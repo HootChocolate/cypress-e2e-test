@@ -3,6 +3,10 @@
 name: Cypress E2E Tests
 
 on:
+
+  schedule:
+    - cron: '56 20 * * *'
+    
   workflow_dispatch:
     inputs:
       RUN_ON_QA:
@@ -15,7 +19,7 @@ on:
         description: "Execução manual - File to Run (opcional)"
         required: false
         default: ' '
-        type: string
+        type: string        
         
 permissions:
   checks: write
