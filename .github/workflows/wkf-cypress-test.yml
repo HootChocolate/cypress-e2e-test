@@ -405,7 +405,7 @@ jobs:
             if [ "$key" = "baseUrl" ]; then
               baseUrl="$value"
             elif [ "$key" = "base_url_api" ]; then
-              base_url_api="${value:-N/A}"
+              base_url_api="$value"
             elif [ "$key" = "endedTestsAt" ]; then
               endedTestsAt="$value"
             elif [ "$key" = "totalDuration" ]; then
@@ -455,7 +455,7 @@ jobs:
           🧪 <b>Framework:</b> Cypress '"$cypressVersion"'\
           🖥️ <b>Navegador:</b> '"$browserName"' - '"$browserVersion"'\
           🌐 <b>Servidor:</b> '"$baseUrl"'\
-          📡 <b>API:</b> '"$base_url_api"'\
+          📡 <b>API:</b> '"${base_url_api:-N/A}"'\
           🔁 <b>Pipeline:</b> ${{ github.workflow }} ${{ github.run_number }}\
           📊 <b>Testes executados:</b> '"$totalSuites"' Suites - '"$totalTests"' Testes\
           📅 <b>Executado em:</b> '"$endedTestsAt"'\
