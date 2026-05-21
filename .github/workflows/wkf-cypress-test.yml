@@ -189,6 +189,7 @@ jobs:
           report_paths: 'cypress/results/**.xml'
           fail_on_failure: true
           require_tests: true
+          include_passed: true
           detailed_summary: true
 
       # pública o arquivo after_run-results.json, gerado no cypress, no cypress.config.ts > 'after:run'
