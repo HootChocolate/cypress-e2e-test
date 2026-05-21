@@ -451,7 +451,7 @@ jobs:
             -d '{
               "chat_id": "'"$TELEGRAM_CHAT_ID_ARGUS_BOT"'",
               "parse_mode": "HTML",
-              "text": "✅ <b>Testes executados com sucesso!</b>\n\🔹🔹🔹🔹🔹🔹🔹🔹🔹🔹🔹🔹🔹n\
+              "text": "✅ <b>Testes executados com sucesso!</b>\n\━━━━━━━━━━━━━━━━━━━━━\n
           🧪 <b>Framework:</b> Cypress '"$cypressVersion"'\
           🖥️ <b>Navegador:</b> '"$browserName"' - '"$browserVersion"'\
           🌐 <b>Servidor:</b> '"$baseUrl"'\
