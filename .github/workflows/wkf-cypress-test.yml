@@ -405,7 +405,7 @@ jobs:
             if [ "$key" = "baseUrl" ]; then
               baseUrl="$value"
             elif [ "$key" = "base_url_api" ]; then
-              base_url_api="$value"
+              base_url_api="${value:-N/A}"
             elif [ "$key" = "endedTestsAt" ]; then
               endedTestsAt="$value"
             elif [ "$key" = "totalDuration" ]; then
@@ -432,7 +432,7 @@ jobs:
           echo "⚙️ Debug variables ⚙️"
 
           echo "baseUrl = $baseUrl"
-          echo "base_url_api = ${base_url_api:-N/A}"
+          echo "base_url_api = $base_url_api"
           echo "endedTestsAt = $endedTestsAt"
           echo "totalDuration = $totalDuration"
           echo "totalPassed = $totalPassed"
