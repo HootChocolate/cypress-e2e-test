@@ -27,6 +27,7 @@ permissions:
   
 env:
   # Set variables once
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   DASHBOARD_TESTS_RESULT: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
   PIPELINE_TEST: "${{ github.workflow }} ${{ github.run_number }}"
   TELEGRAM_POST: "https://api.telegram.org/${{ vars.TELEGRAM_BOT_ID_ARGUS_BOT }}/sendMessage"
