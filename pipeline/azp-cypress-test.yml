@@ -15,7 +15,7 @@ variables:
   - name: PIPELINE_TEST
     value: "$(Build.DefinitionName) $(Build.BuildId)"
   - name: TELEGRAM_POST
-    value: https://api.telegram.org/$TELEGRAM_BOT_ID_ARGUS_BOT/sendMessage
+    value: https://api.telegram.org/$TELEGRAM_BOT_ID/sendMessage
   - name: TELEGRAM_URL_GROUP
     value: "https://web.telegram.org/k/#$(TELEGRAM_WEB_URL)"
   - name: TERM # evita warning no log no ci do cypress
@@ -60,9 +60,9 @@ stages:
             backend:
               groupName: backend
               specPattern: "cypress/e2e/**/*-backend.cy.ts"
-            # frontend:
-            #   groupName: frontend
-            #   specPattern: "cypress/e2e/**/*-frontend.cy.ts"  # TODO: Voltar depois 
+            frontend:
+              groupName: frontend
+              specPattern: "cypress/e2e/**/*-frontend.cy.ts"
         steps:
           - task: UseNode@1
             displayName: "Define Node version"
@@ -114,7 +114,7 @@ stages:
                 echo "⚙️ Debug variables ⚙️"
                 echo "Pipeline.Workspace = $(Pipeline.Workspace)"
                 echo "BUILD_BUILDNUMBER = $BUILD_BUILDNUMBER"
-                echo "Trigger disparada a partir da branch: $(TRIGGER_BRANCH)"
+                # echo "Trigger disparada a partir da branch: $(TRIGGER_BRANCH)"
                 echo "Reason: $(Build.Reason)"
                 echo "SourceBranchName: $(Build.SourceBranchName)"
                 echo "NOTIFY = $(NOTIFY)"
@@ -122,6 +122,7 @@ stages:
                 echo "NOTIFY_ON_SUCCESS = $(NOTIFY_ON_SUCCESS)"
                 echo "NOTIFY_ERR_TELEGRAM_SCHEENSHOT = $(NOTIFY_ERR_TELEGRAM_SCHEENSHOT)"
                 echo "NOTIFY_ERR_TELEGRAM_VIDEO = $(NOTIFY_ERR_TELEGRAM_VIDEO)"
+                echo "AZURE_DEVOPS_PAT = $(AZURE_DEVOPS_PAT)"
                 echo "Build.BuildId: $(Build.BuildId)"
                 echo "Build.BuildNumber: $(Build.BuildNumber)"
                 echo "groupName: $(groupName)"
@@ -129,20 +130,19 @@ stages:
                 node -v
                 echo "specPattern: $(specPattern)"
                 echo "overrideFileRun: ${{ parameters.overrideFileRun }}"
-                echo "FileRun: $(fileRun)"
                 
           # por motivos de boas práticas deve ser definido uma baseUrl para o cypress, 
           # por padrão o da master por isso apenas o qa deve ser trocado a baseUrl e url da api
+          #
+          # and(eq(variables['TRIGGER_BRANCH'], 'refs/heads/qa'), eq(variables['Build.Reason'], 'ResourceTrigger'))
           - task: Bash@3  # roda no QA
             displayName: 'QA - Cypress E2E tests'
-            condition: or(
-              eq('${{ parameters.RUN_ON_QA }}', 'true'), 
-              and(eq(variables['TRIGGER_BRANCH'], 'refs/heads/qa'), eq(variables['Build.Reason'], 'ResourceTrigger'))
-              )
+            condition: eq('${{ parameters.RUN_ON_QA }}', 'true')
             inputs:
               targetType: 'inline'
               script: | 
-                echo "🤖 QA - Executando testes..."
+                echo "🔥🚀 QA - Executando testes..."
+                echo "O baseUrl será configurado para usar o valor: $(baseUrl_QA)"
 
                 export CYPRESS_BASE_URL_API=$(BASE_URL_API)
                 export CYPRESS_BASE_URL_QA=$(BASE_URL_QA)
@@ -158,8 +158,8 @@ stages:
                 
                 export CYPRESS_NOTIFY_ERR_TELEGRAM_SCHEENSHOT=$(NOTIFY_ERR_TELEGRAM_SCHEENSHOT)
                 export CYPRESS_NOTIFY_ERR_TELEGRAM_VIDEO=$(NOTIFY_ERR_TELEGRAM_VIDEO)
-                export CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT=$(TELEGRAM_BOT_ID_ARGUS_BOT)
-                export CYPRESS_TELEGRAM_CHAT_ID_ARGUS_BOT=$(TELEGRAM_CHAT_ID_ARGUS_BOT)
+                export CYPRESS_TELEGRAM_BOT_ID=$(TELEGRAM_BOT_ID)
+                export CYPRESS_TELEGRAM_CHAT_ID=$(TELEGRAM_CHAT_ID)
 
                 export CYPRESS_AZURE_DEVOPS_PAT=$(AZURE_DEVOPS_PAT)
 
@@ -169,17 +169,14 @@ stages:
                   --headless 
 # --browser chrome \                  
 
+# and(eq(variables['TRIGGER_BRANCH'], 'refs/heads/master'), eq(variables['Build.Reason'], 'ResourceTrigger'))
           - task: Bash@3
             displayName: 'Master - Cypress E2E tests'
-            condition: or(
-              and(
-                eq(variables['Build.Reason'], 'Manual'), eq('${{ parameters.RUN_ON_QA }}', 'false')), 
-                and(eq(variables['TRIGGER_BRANCH'], 'refs/heads/master'), eq(variables['Build.Reason'], 'ResourceTrigger'))
-              )
+            condition: and(eq(variables['Build.Reason'], 'Manual'), eq('${{ parameters.RUN_ON_QA }}', 'false'))
             inputs:
               targetType: 'inline'
               script: |
-                echo "🤖 Master Executando testes..."
+                echo "🔥🚀 Master Executando testes..."
 
                 export CYPRESS_BASE_URL_API=$(BASE_URL_API)
                 export CYPRESS_BASE_URL_QA=$(BASE_URL_QA)
@@ -195,37 +192,69 @@ stages:
                 
                 export CYPRESS_NOTIFY_ERR_TELEGRAM_SCHEENSHOT=$(NOTIFY_ERR_TELEGRAM_SCHEENSHOT)
                 export CYPRESS_NOTIFY_ERR_TELEGRAM_VIDEO=$(NOTIFY_ERR_TELEGRAM_VIDEO)
-                export CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT=$(TELEGRAM_BOT_ID_ARGUS_BOT)
-                export CYPRESS_TELEGRAM_CHAT_ID_ARGUS_BOT=$(TELEGRAM_CHAT_ID_ARGUS_BOT)
+                export CYPRESS_TELEGRAM_BOT_ID=$(TELEGRAM_BOT_ID)
+                export CYPRESS_TELEGRAM_CHAT_ID=$(TELEGRAM_CHAT_ID)
 
                 export CYPRESS_AZURE_DEVOPS_PAT=$(AZURE_DEVOPS_PAT)
 
                 npx cypress run \
                   --spec "$(specPattern)" \
-                  --headless && ts-node cypress/scripts/generate-md.ts
+                  --headless
+
 # --browser chrome \                   
 
 # npx cypress run --record --key $(CYPRESS_RECORD_KEY) --parallel --ci-build-id $BUILD_BUILDNUMBER --env... # run on cypress cloud
 
-# Publica o resultados de todos os testes, de todas as matrices -  É possível publicar separado os relatórios com o $(groupName)
+# Publica o resultados de todos os testes, de todas as matrices -  É possível publicar separado os relatórios com o $(groupName)                  
+
+          - task: Bash@3
+            displayName: 'Generate documentation.md'
+            condition: and(
+              eq(variables['PUBLISH_DOC'], 'true'),
+              or(
+                eq(variables['groupName'], 'backend'),
+                eq(variables['Build.Reason'], 'Manual'),
+                eq(variables['Build.Reason'], 'Schedule')
+              ))
+            inputs:
+              targetType: 'inline'
+              script: |
+                echo "🛠️ Gerando documentação markdown, para publicação posterior"
+                ts-node cypress/scripts/generate-md.ts
+
+          - task: Bash@3
+            displayName: 'Debug - List report files'
+            condition: succeededOrFailed()
+            inputs:
+              targetType: 'inline'
+              script: |
+                echo "📂 Current directory:"
+                pwd
+
+                echo ""
+                echo "📂 System.DefaultWorkingDirectory:"
+                echo "$(System.DefaultWorkingDirectory)"
+
+                echo ""
+                echo "📂 Listando arquivos do workspace:"
+                find $(System.DefaultWorkingDirectory) -type f | sort
+
+                echo ""
+                echo "📂 Listando pasta cypress/results:"
+                ls -lah $(System.DefaultWorkingDirectory)/cypress/results || true
+                
           - task: PublishTestResults@2  # publica o relatório xml para visualização da aba test no azure
             displayName: 'Publish Tests results'
             continueOnError: true
             condition: succeededOrFailed()
             inputs:
+              searchFolder: '$(System.DefaultWorkingDirectory)'
+              testResultsFiles: 'cypress/results/*.xml'
               testResultsFormat: 'JUnit'
-              testResultsFiles: 'cypress/results/**.xml'
               mergeTestResults: true
-              failTaskOnFailedTests: true
+              failTaskOnFailedTests: false
               failTaskOnFailureToPublishResults: true
               failTaskOnMissingResultsFile: true
-
-# condition: and(
-#   succeededOrFailed(),
-#   eq(variables['groupName'], 'backend')
-#   )
-# searchFolder: '$(groupName)'              
-
 
 # pública o arquivo after_run-results.json, gerado no cypress, no cypress.config.ts > 'after:run'
           - task: PublishBuildArtifacts@1
@@ -272,8 +301,6 @@ stages:
 
                 # debug
                 echo "⚙️ Debug variables ⚙️"
-                echo "Collection URI = $(System.TeamFoundationCollectionUri)"
-                echo "Project       = $(System.TeamProject)"
                 echo "CY_ROOT_DOCS_PATH = $CY_ROOT_DOCS_PATH"
                 echo "WIKI_URL_APIS = $WIKI_URL_APIS"
 
@@ -291,6 +318,7 @@ stages:
                 # echo "Arquivos .md >>>"
                 # find "$CY_ROOT_DOCS_PATH" -type f -name "*.md"
                 
+                echo "----------------INIT DOC --------------------------"
                 echo "📚 Processo de publicação de documentos..."
                 
                 # Para Azure DevOps - evita process substitution completamente - no final do while, é inserido no done <
@@ -300,7 +328,7 @@ stages:
                 
                 # Itera nos arquivos.md de documentação, para publicar
                 while read -r file; do
-                  echo "👉 Enviando arquivo $file"
+                  echo "👉 Enviando arquivo = $file"
 
                   
                   RELATIVE_PATH=$(echo "$file" | sed "s|$CY_ROOT_DOCS_PATH||" | sed 's|.md$||')
@@ -308,40 +336,45 @@ stages:
                   
                   echo "👉 Publicar arquivo do path = $WIKI_PATH"
 
-                  IFS='/' read -ra PATH_PARTS <<< "${WIKI_PATH#/}"
+                  # faz um split por '/'
+                  IFS='/' read -ra SPLIT_PATH <<< "${WIKI_PATH#/}"
 
                   CURRENT_PATH=""
-                  NUM_PARTS=${#PATH_PARTS[@]}
+                  NUM_SPLIT=${#SPLIT_PATH[@]}
 
-                  # itera nos arquivos criados do path/ para criar as pastas principais e conteúdos das pastas
-                  for i in "${!PATH_PARTS[@]}"; do
+                  # itera nos arquivos criados do split/ para criar as pastas principais e conteúdos das pastas
+                  for i in "${!SPLIT_PATH[@]}"; do
 
-                    CURRENT_PATH="$CURRENT_PATH/${PATH_PARTS[i]}"
-                    
-                    echo "👉 File to Publish = $CURRENT_PATH"
+                    CURRENT_PATH="$CURRENT_PATH/${SPLIT_PATH[i]}"                    
 
                     # Verifica se existe a pasta principal, cria caso não exista
-                    if [ $i -lt $((NUM_PARTS - 1)) ]; then
-                      echo "👉 Pasta sendo considerada = $CURRENT_PATH"
+                    if [ $i -lt $((NUM_SPLIT - 1)) ]; then
+                      echo "[${SPLIT_PATH[i]}] 👉 Pasta sendo considerada = $CURRENT_PATH"
 
                       # trata espaços, caracteres especiais, encoding em geral
                       SAFE_PATH=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$CURRENT_PATH'''))")
 
+                      # monta a URL para criação da pasta principal
                       PUT_URL="$WIKI_URL_APIS/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
                       echo "🔗 PUT_URL = $PUT_URL"
 
-                      status_pai=$(curl -s -o /dev/null -w "%{http_code}" \
-                        -u :$(AZURE_DEVOPS_PAT) \
+                      # Verifico se a pasta principal já existe
+                      responseExists=$(curl -s -o /tmp/curl_response.json -w "%{http_code}" \
+                        --max-time 60 \
+                        -X PUT \
+                        -u ":$(AZURE_DEVOPS_PAT)" \
                         -H "Content-Type: application/json" \
+                        -d '{}' \
                         "$PUT_URL")
 
-                      echo "👉 Status da pasta principal = $status_pai"
+                      # responsePrincipal
+                      echo "👉 Status - Pasta existente? = $responseExists"
 
-                      if [ "$status_pai" -eq 200 ]; then
+                      if [ "$responseExists" -eq 500 ]; then
                         # Existe a pasta pai
                         echo "👉 Página pai já existe, pulando..."
 
-                      else
+                      elif [ "$key" = "base_url_api" ]; then
                         # Não existe a pasta pai
                         echo "👉 Será criado uma nova pasta = $CURRENT_PATH"
                         
@@ -394,16 +427,27 @@ stages:
                       -d "{\"content\": $CONTENT}" \
                       "$PUT_URL")
                   fi
+                  
+                  echo "----------------END DOC --------------------------"
 
                   body=$(cat /tmp/curl_response.json)
 
                   echo "Status code final = $status_final_file"
-                  echo "Response body final =  $body"
                   
                   if [ "$status_final_file" -ne 200 ] && [ "$status_final_file" -ne 201 ]; then
                     echo "❌  Erro ao publicar página"
-                    # echo "Response = $(cat /tmp/curl_response.json)"
+
+                    echo "Response body final =  $body"
+
+                    echo "👉 /tmp files:"
                     ls /tmp
+
+                    echo "👉 curl_response.json"
+                    cat /tmp/curl_response.json
+
+                    echo "👉 wiki_files.tx"
+                    cat /tmp/wiki_files.txt
+
                     exit 1
 
                   fi
@@ -440,20 +484,21 @@ stages:
                 echo "👉 Notificará sucesso..."
 
                 # Valida variáveis required para o fluxo
-                if [ -z "$TELEGRAM_BOT_ID_ARGUS_BOT" ] || [ -z "$TELEGRAM_CHAT_ID_ARGUS_BOT" ]; then
+                if [ -z "$TELEGRAM_BOT_ID" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
                   # -z = variável vazia ou não definida
                   echo "❌ ERRO = Variáveis obrigatórias não informadas!"
-                  echo "TELEGRAM_BOT_ID_ARGUS_BOT=$TELEGRAM_BOT_ID_ARGUS_BOT"
-                  echo "TELEGRAM_CHAT_ID_ARGUS_BOT=$TELEGRAM_CHAT_ID_ARGUS_BOT"
+                  echo "TELEGRAM_BOT_ID=$TELEGRAM_BOT_ID"
+                  echo "TELEGRAM_CHAT_ID=$TELEGRAM_CHAT_ID"
                   exit 1
                 fi
 
                 echo "⚙️ Debug variables ⚙️" 
 
-                echo "TELEGRAM_CHAT_ID_ARGUS_BOT = $TELEGRAM_CHAT_ID_ARGUS_BOT"
-                echo "TELEGRAM_BOT_ID_ARGUS_BOT = $TELEGRAM_BOT_ID_ARGUS_BOT"
+                echo "TELEGRAM_CHAT_ID = $TELEGRAM_CHAT_ID"
+                echo "TELEGRAM_BOT_ID = $TELEGRAM_BOT_ID"
                 echo "TELEGRAM_POST = $TELEGRAM_POST"
                 echo "DASHBOARD_TESTS_RESULT = $(DASHBOARD_TESTS_RESULT)"
+                echo "TEST_RUN_URL = $$TEST_RUN_URL"
                 # extrai variáveis
                 CY_RESULTS_FILE_PATH="$(System.DefaultWorkingDirectory)/afterRunResults/after_run-results.json"
 
@@ -514,13 +559,13 @@ stages:
                  response=$(curl -s -w "\n%{http_code}" -X POST "$(TELEGRAM_POST)" \
                     -H "Content-Type: application/json" \
                     -d '{
-                        "chat_id": "$(TELEGRAM_CHAT_ID_ARGUS_BOT)",
+                        "chat_id": "$(TELEGRAM_CHAT_ID)",
                         "parse_mode": "HTML",
                         "text": "✅ <b>Testes executados com sucesso!</b>\
                     🧪 <b>Framework:</b> Cypress '"$cypressVersion"'\
                     🖥️ <b>Navegador:</b> '"$browserName"' - '"$browserVersion"'\
                     🌐 <b>Servidor:</b> '"$baseUrl"'\
-                    📡 <b>API:</b> '"$base_url_api"'\
+                    📡 <b>API:</b> '"${base_url_api:-N/A}"'\
                     🔁 <b>Pipeline:</b> $(Build.DefinitionName) $(Build.BuildId)\
                     📊 <b>Testes executados:</b> '"$totalSuites"' Suites - '"$totalTests"' Testes\
                     📅 <b>Executado em:</b> '"$endedTestsAt"'\
@@ -539,7 +584,7 @@ stages:
                   echo "$responseBody"
                   exit 1
                 else
-                  echo "✅ Mensagem enviada com sucesso"
+                  echo "✅ Mensagem enviada com sucesso!"
                 fi
                 
           - task: Bash@3
@@ -702,20 +747,21 @@ stages:
                 echo "👉 Notificará erro..."
                 
                 # Valida variáveis required para o fluxo
-                if [ -z "$TELEGRAM_BOT_ID_ARGUS_BOT" ] || [ -z "$TELEGRAM_CHAT_ID_ARGUS_BOT" ]; then
+                if [ -z "$TELEGRAM_BOT_ID" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
                   # -z = variável vazia ou não definida
                   echo "❌ ERRO = Variáveis obrigatórias não informadas!"
-                  echo "TELEGRAM_BOT_ID_ARGUS_BOT=$TELEGRAM_BOT_ID_ARGUS_BOT"
-                  echo "TELEGRAM_CHAT_ID_ARGUS_BOT=$TELEGRAM_CHAT_ID_ARGUS_BOT"
+                  echo "TELEGRAM_BOT_ID=$TELEGRAM_BOT_ID"
+                  echo "TELEGRAM_CHAT_ID=$TELEGRAM_CHAT_ID"
                   exit 1
                 fi
 
                 echo "⚙️ Debug variables ⚙️" 
 
-                echo "TELEGRAM_CHAT_ID_ARGUS_BOT = $TELEGRAM_CHAT_ID_ARGUS_BOT"
-                echo "TELEGRAM_BOT_ID_ARGUS_BOT = $TELEGRAM_BOT_ID_ARGUS_BOT"
+                echo "TELEGRAM_CHAT_ID = $TELEGRAM_CHAT_ID"
+                echo "TELEGRAM_BOT_ID = $TELEGRAM_BOT_ID"
                 echo "TELEGRAM_POST = $TELEGRAM_POST"
                 echo "DASHBOARD_TESTS_RESULT = $(DASHBOARD_TESTS_RESULT)"
+                echo "TEST_RUN_URL = $$TEST_RUN_URL"
 
                 # extrai variáveis
                 CY_RESULTS_FILE_PATH="$(System.DefaultWorkingDirectory)/afterRunResults/after_run-results.json"
@@ -780,13 +826,13 @@ stages:
                 response=$(curl -s -w "\n%{http_code}" -X POST "$(TELEGRAM_POST)" \
                   -H "Content-Type: application/json" \
                   -d '{
-                    "chat_id": "$(TELEGRAM_CHAT_ID_ARGUS_BOT)",
+                    "chat_id": "$(TELEGRAM_CHAT_ID)",
                     "parse_mode": "HTML",
                     "text": "❌ <b>Atenção: Testes executados com erros!</b>\n\
                   🧪 <b>Framework:</b> Cypress '"$cypressVersion"'\
                   🖥️ <b>Navegador:</b> '"$browserName"' - '"$browserVersion"'\
                   🌐 <b>Servidor:</b> '"$baseUrl"'\
-                  📡 <b>API:</b> '"$base_url_api"'\
+                  📡 <b>API:</b> '"${base_url_api:-N/A}"'\
                   🔁 <b>Pipeline:</b> $(PIPELINE_TEST)\
                   📊 <b>Testes Executados:</b> '"$totalSuites"' Suites - '"$totalTests"' Testes\
                   🟢 <b>Testes com sucesso:</b> '"$totalPassed"'\
@@ -962,7 +1008,7 @@ stages:
                     echo "$responseBody"
                     exit 1
                   else
-                    echo "✅ Mensagem enviada com sucesso"
+                    echo "✅ Mensagem enviada com sucesso!"
                   fi
 
                 else # quando NÃO deve enviar o link do telegram
@@ -1040,5 +1086,5 @@ stages:
                     echo "$body"
                     exit 1
                   else
-                    echo "✅ Mensagem enviada com sucesso"
+                    echo "✅ Mensagem enviada com sucesso!"
                   fi

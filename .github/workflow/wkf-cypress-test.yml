@@ -30,7 +30,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   DASHBOARD_TESTS_RESULT: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
   PIPELINE_TEST: "${{ github.workflow }} ${{ github.run_number }}"
-  TELEGRAM_POST: "https://api.telegram.org/${{ vars.TELEGRAM_BOT_ID_ARGUS_BOT }}/sendMessage"
+  TELEGRAM_POST: "https://api.telegram.org/${{ vars.TELEGRAM_BOT_ID }}/sendMessage"
   TELEGRAM_URL_GROUP: "https://web.telegram.org/k/#${{ vars.TELEGRAM_WEB_URL }}"
   TERM: xterm # evita warning no log no ci do cypress
 
@@ -86,14 +86,14 @@ jobs:
       - name: 'Cypress verify'
         run: npm run cy:verify
         
-      # - name: 'Check Variables'
-      #   shell: bash
-      #   run: |
-      #     if [[ "${{ vars.NOTIFY }}" == "true" && -z "${{ vars.NOTIFY_ON }}" ]]; then
-      #       echo "[ERRO] Variável de onde notificar deve ser informada"
-      #       echo "vars.NOTIFY_ON = '${{ vars.NOTIFY_ON }}'"
-      #       exit 1
-      #     fi
+      - name: 'Validate notify'
+        shell: bash
+        run: |
+          if [[ "${{ vars.NOTIFY }}" == "true" && -z "${{ vars.NOTIFY_ON }}" ]]; then
+            echo "[ERRO] Variável de onde notificar deve ser informada"
+            echo "vars.NOTIFY_ON = '${{ vars.NOTIFY_ON }}'"
+            exit 1
+          fi
 
       - name: 'Debug - Print Variables'
         run: |
@@ -136,13 +136,14 @@ jobs:
 
           CYPRESS_NOTIFY_ERR_TELEGRAM_SCHEENSHOT: ${{ vars.NOTIFY_ERR_TELEGRAM_SCHEENSHOT }}
           CYPRESS_NOTIFY_ERR_TELEGRAM_VIDEO: ${{ vars.NOTIFY_ERR_TELEGRAM_VIDEO }}
-          CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_BOT_ID_ARGUS_BOT }}
-          CYPRESS_TELEGRAM_CHAT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_CHAT_ID_ARGUS_BOT }}
+          CYPRESS_TELEGRAM_BOT_ID: ${{ vars.TELEGRAM_BOT_ID }}
+          CYPRESS_TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_CHAT_ID }}
 
           CYPRESS_AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
 
         run: |
-          echo "🤖 QA - Executando testes..."
+          echo "🔥🚀 QA - Executando testes..."
+          echo "O baseUrl será configurado para usar o valor: ${{ vars.BASE_URL_QA }}"
 
           npx cypress run \
             --spec "${{ matrix.specPattern }}" \
@@ -167,18 +168,23 @@ jobs:
 
           CYPRESS_NOTIFY_ERR_TELEGRAM_SCHEENSHOT: ${{ vars.NOTIFY_ERR_TELEGRAM_SCHEENSHOT }}
           CYPRESS_NOTIFY_ERR_TELEGRAM_VIDEO: ${{ vars.NOTIFY_ERR_TELEGRAM_VIDEO }}
-          CYPRESS_TELEGRAM_BOT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_BOT_ID_ARGUS_BOT }}
-          CYPRESS_TELEGRAM_CHAT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_CHAT_ID_ARGUS_BOT }}
+          CYPRESS_TELEGRAM_BOT_ID: ${{ vars.TELEGRAM_BOT_ID }}
+          CYPRESS_TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_CHAT_ID }}
 
           CYPRESS_AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
 
         run: |
-          echo "🤖 Master Executando testes..."
+          echo "🔥🚀 Master Executando testes..."
 
           npx cypress run \
             --spec "${{ matrix.specPattern }}" \
-            --headless && ts-node cypress/scripts/generate-md.ts
-      # --browser chrome \
+            --headless
+      
+      - name: 'Generate documentation.md'
+        if: ${{ vars.PUBLISH_DOC && github.ref == 'refs/heads/master' }}
+        run: |
+          echo "🛠️ Gerando documentação markdown, para publicação posterior"
+          ts-node cypress/scripts/generate-md.ts
 
       # npx cypress run --record --key $(CYPRESS_RECORD_KEY) --parallel --ci-build-id $BUILD_BUILDNUMBER --env... # run on cypress cloud
 
@@ -201,156 +207,20 @@ jobs:
           name: afterRunResults
           path: cypress/fixtures/geral/tmp/monitoramento/after_run-results.json
 
+
+
+      # Da part de publicação de documentação, será comentada aqui, porque esse arquivo é para execução no github, não no azure. 
+      # Teria que configurar o envio da documentação, nesse caso, para o repositório específico do cliente.
+
       # O processo de documentação pode ser ignorado, mudando a variable PUBLISH_DOC da library
       #
       # Processo:
       # Encontra os testes de api, gerador pela task saveApiDoc();
       # Publica a documentação, organizados conforme definido no path do saveApiDoc().
-      - name: "Wiki Documentation"
-        if: false && vars.PUBLISH_DOC == 'true' && matrix.groupName == 'backend'
-        env:
-          WIKI_API_NAME: ${{ vars.WIKI_API_NAME }}
-          WIKI_API_VERSION: ${{ vars.WIKI_API_VERSION }}
-          WIKI_IDENTIFIER: ${{ vars.WIKI_IDENTIFIER }}
-          AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
-        run: |
-          echo "📚 Publicando documentação na Wiki do Azure, gerada em teste anterior..."
-
-          if [ -z "$WIKI_API_NAME" ] || [ -z "$WIKI_API_VERSION" ] || [ -z "$WIKI_IDENTIFIER" ]; then
-            # -z = variável vazia ou não definida
-            echo "❌ ERRO = Variáveis obrigatórias não informadas!"
-            echo "WIKI_API_NAME=$WIKI_API_NAME"
-            echo "WIKI_API_VERSION=$WIKI_API_VERSION"
-            echo "WIKI_IDENTIFIER=$WIKI_IDENTIFIER"
-
-            exit 1
-          fi
-
-          CY_ROOT_DOCS_PATH="cypress/results/doc" # onde deve ser encontrado os documentos
-
-          # A necessidade de ter que tratar a URL aqui, e não ter deixado ela completa nas library é porque o POST para a pasta principal e sub-pastas são diferentes
-          WIKI_URL_APIS="${{ secrets.SYSTEM_TEAMFOUNDATIONCOLLECTIONURI }}${{ secrets.SYSTEM_TEAMPROJECT }}/_apis/wiki/wikis/$WIKI_IDENTIFIER.wiki"  # URL da _apis Wiki
-          WIKI_API_VERSION="$WIKI_API_VERSION"
-          WIKI_IDENTIFIER="$WIKI_IDENTIFIER"
-
-          echo "⚙️ Debug variables ⚙️"
-          echo "CY_ROOT_DOCS_PATH = $CY_ROOT_DOCS_PATH"
-          echo "WIKI_URL_APIS = $WIKI_URL_APIS"
-
-          # verifica se existe documento para publicar
-          # -d: é um diretório?
-          if [ -d "$CY_ROOT_DOCS_PATH" ]; then
-            echo "👉 Documentos da pasta /doc:"
-            ls -la "$CY_ROOT_DOCS_PATH"
-          else
-            echo "❌ Erro na publicação de documentos, o repositório /doc não foi encontrado = $CY_ROOT_DOCS_PATH"
-            exit 1
-          fi
-
-          echo "📚 Processo de publicação de documentos..."
-
-          find "$CY_ROOT_DOCS_PATH" -type f -name "*.md" > /tmp/wiki_files.txt
-
-          while read -r file; do
-            echo "👉 Enviando arquivo $file"
-
-            RELATIVE_PATH=$(echo "$file" | sed "s|$CY_ROOT_DOCS_PATH||" | sed 's|.md$||')
-            WIKI_PATH="$(WIKI_API_NAME)/${RELATIVE_PATH#/}"
-
-            echo "👉 Publicar arquivo do path = $WIKI_PATH"
-
-            IFS='/' read -ra PATH_PARTS <<< "${WIKI_PATH#/}"
-
-            CURRENT_PATH=""
-            NUM_PARTS=${#PATH_PARTS[@]}
-
-            for i in "${!PATH_PARTS[@]}"; do
-
-              CURRENT_PATH="$CURRENT_PATH/${PATH_PARTS[i]}"
-
-              echo "👉 File to Publish = $CURRENT_PATH"
-
-              if [ $i -lt $((NUM_PARTS - 1)) ]; then
-                echo "👉 Pasta sendo considerada = $CURRENT_PATH"
-
-                SAFE_PATH=$(python3 -c "import urllib.parse; print(urllib.parse.quote('''$CURRENT_PATH'''))")
-
-                PUT_URL="$WIKI_URL_APIS/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
-                echo "🔗 PUT_URL = $PUT_URL"
-
-                status_pai=$(curl -s -o /dev/null -w "%{http_code}" \
-                  -u :$AZURE_DEVOPS_PAT \
-                  -H "Content-Type: application/json" \
-                  "$PUT_URL")
-
-                echo "👉 Status da pasta principal = $status_pai"
-
-                if [ "$status_pai" -eq 200 ]; then
-                  echo "👉 Página pai já existe, pulando..."
-
-                else
-                  echo "👉 Será criado uma nova pasta = $CURRENT_PATH"
-
-                  PUT_URL="$WIKI_URL_APIS/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
-
-                  status_new_pai=$(curl -s -o /tmp/curl_response.json -w "%{http_code}" --max-time 60 -X PUT \
-                    -u :$AZURE_DEVOPS_PAT \
-                    -H "Content-Type: application/json" \
-                    -d "{\"content\": \"\"}" \
-                    "$PUT_URL")
-
-                  echo "👉 Status da nova pasta criada = $status_new_pai"
-                fi
-              fi
-            done
-
-            CONTENT=$(jq -Rs . < "$file")
-            PUT_URL="$WIKI_URL_APIS/pages?path=$SAFE_PATH&api-version=$WIKI_API_VERSION"
-
-            echo "👉 Criando/Atualizando página filho = $WIKI_PATH"
-            echo "🔗 PUT_URL = $PUT_URL"
-
-            etag=$(curl -s -D - \
-              -u :$AZURE_DEVOPS_PAT \
-              "$PUT_URL" | grep -i ETag | awk '{print $2}' | tr -d '\r')
-
-            if [ -z "$etag" ]; then
-              echo "👉 Página não existe, criando..."
-
-              status_final_file=$(curl -s -o /tmp/curl_response.json -w "%{http_code}" --max-time 60 -X PUT \
-                -u :$AZURE_DEVOPS_PAT \
-                -H "Content-Type: application/json" \
-                -d "{\"content\": $CONTENT}" \
-                "$PUT_URL")
-
-            else
-              echo "🔄 Página existe, atualizando..."
-
-              status_final_file=$(curl -s -o /tmp/curl_response.json -w "%{http_code}" --max-time 60 -X PUT \
-                -u :$AZURE_DEVOPS_PAT \
-                -H "Content-Type: application/json" \
-                -H "If-Match: $etag" \
-                -d "{\"content\": $CONTENT}" \
-                "$PUT_URL")
-            fi
-
-            body=$(cat /tmp/curl_response.json)
-
-            echo "Status code final = $status_final_file"
-            echo "Response body final =  $body"
-
-            if [ "$status_final_file" -ne 200 ] && [ "$status_final_file" -ne 201 ]; then
-              echo "❌  Erro ao publicar página"
-              ls /tmp
-              exit 1
-            fi
-
-            WIKI_URL_AZURE=$(echo "$body" | jq -r '.remoteUrl')
-
-            echo "✅ Documentação atualiza com sucesso!"
-            echo "🔗 $WIKI_URL_AZURE"
-
-          done < /tmp/wiki_files.txt
+      # - name: "Wiki Documentation"  
+      #   if: false && vars.PUBLISH_DOC && matrix.groupName == 'backend'
+      #   run: |
+      #     echo "📚 Publicando documentação na Wiki do Azure, gerada em teste anterior..."
 
   NotifyTestResults:
     name: "Successo - Notificação"
@@ -368,24 +238,24 @@ jobs:
       - name: "Telegram"
         if: vars.NOTIFY_ON == 'TELEGRAM'
         env:
-          TELEGRAM_BOT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_BOT_ID_ARGUS_BOT }}
-          TELEGRAM_CHAT_ID_ARGUS_BOT: ${{ vars.TELEGRAM_CHAT_ID_ARGUS_BOT }}
+          TELEGRAM_BOT_ID: ${{ vars.TELEGRAM_BOT_ID }}
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_CHAT_ID }}
         run: |
           echo "👉 Notificará sucesso..."
 
           # Valida variáveis required para o fluxo
-          if [ -z "$TELEGRAM_BOT_ID_ARGUS_BOT" ] || [ -z "$TELEGRAM_CHAT_ID_ARGUS_BOT" ]; then
+          if [ -z "$TELEGRAM_BOT_ID" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
             # -z = variável vazia ou não definida
             echo "❌ ERRO = Variáveis obrigatórias não informadas!"
-            echo "TELEGRAM_BOT_ID_ARGUS_BOT=$TELEGRAM_BOT_ID_ARGUS_BOT"
-            echo "TELEGRAM_CHAT_ID_ARGUS_BOT=$TELEGRAM_CHAT_ID_ARGUS_BOT"
+            echo "TELEGRAM_BOT_ID=$TELEGRAM_BOT_ID"
+            echo "TELEGRAM_CHAT_ID=$TELEGRAM_CHAT_ID"
             exit 1
           fi
 
           echo "⚙️ Debug variables ⚙️"
 
-          echo "TELEGRAM_CHAT_ID_ARGUS_BOT = $TELEGRAM_CHAT_ID_ARGUS_BOT"
-          echo "TELEGRAM_BOT_ID_ARGUS_BOT = $TELEGRAM_BOT_ID_ARGUS_BOT"
+          echo "TELEGRAM_CHAT_ID = $TELEGRAM_CHAT_ID"
+          echo "TELEGRAM_BOT_ID = $TELEGRAM_BOT_ID"
           echo "TELEGRAM_POST = $TELEGRAM_POST"
           echo "DASHBOARD_TESTS_RESULT = $DASHBOARD_TESTS_RESULT"
 
@@ -449,7 +319,7 @@ jobs:
           response=$(curl -s -w "\n%{http_code}" -X POST "$TELEGRAM_POST" \
             -H "Content-Type: application/json" \
             -d '{
-              "chat_id": "'"$TELEGRAM_CHAT_ID_ARGUS_BOT"'",
+              "chat_id": "'"$TELEGRAM_CHAT_ID"'",
               "parse_mode": "HTML",
               "text": "✅ <b>Testes executados com sucesso!</b>\n\━━━━━━━━━━━━━━━━━━━
           🧪 <b>Framework:</b> Cypress '"$cypressVersion"'\
@@ -474,7 +344,7 @@ jobs:
             echo "$responseBody"
             exit 1
           else
-            echo "✅ Mensagem enviada com sucesso"
+            echo "✅ Mensagem enviada com sucesso!"
           fi
 
       - name: "Teams"

@@ -4,40 +4,46 @@ const fs = require("fs");
 const path = require("path");
 
 const FormData = require("form-data");  // __dirname global node.js
-const telegramBaseURL = 'https://api.telegram.org/bot';
+
 const PATH_TMP = 'geral/tmp'
 const PATH_TO_WARNS = `${PATH_TMP}/monitoramento/warns.json`
 
-async function sendTelegramMessage(telegramAPIUrl, chat_id, text, appendLogMsg) {
-  const urlSendMessage = `${telegramAPIUrl}/sendMessage`;
-  const body = { "chat_id": `${chat_id}`, "parse_mode": "HTML", "text": `${text}` }
+const TELEGRAM_POST = `https://api.telegram.org/`
+
+async function sendTelegramMessage(text, appendLogMsg) {
+  if (!__ENV.TELEGRAM_BOT_ID) throw new Error(`__ENV.TELEGRAM_BOT_ID must be provided`)
+  if (!__ENV.TELEGRAM_CHAT_ID) throw new Error(`__ENV.TELEGRAM_CHAT_ID must be provided`)
+
+  const urlSendMessage = `${TELEGRAM_POST}/sendMessage`;
+  const url = `/sendMessage`;
+  const body = { "chat_id": `${__ENV.TELEGRAM_CHAT_ID}`, "parse_mode": "HTML", "text": `${text}` }
 
   try {
     const response = await axios.post(urlSendMessage, body);
 
     if (response.status !== 200) {
-      throw new Error(`[TELEGRAM] Erro: Status ${response.status}`);
+      throw new Error(`❌ [TELEGRAM] Erro: Status ${response.status}`);
     }
 
-    console.log(`[TELEGRAM] Mensagem enviada com sucesso${appendLogMsg ? ` - ${appendLogMsg}` : ''}`);
+    console.log(`✅ [TELEGRAM] Mensagem enviada com sucesso${appendLogMsg ? `! - ${appendLogMsg}` : '!'}`);
     return response.data;
 
   } catch (err) {
     const m = err.response?.data.description || err.message;
     if (!m.includes('Bad Request: message is too long')) {
-      await sendTelegramMessage(telegramAPIUrl, chat_id, m, appendLogMsg)
+      await sendTelegramMessage(TELEGRAM_POST, __ENV.TELEGRAM_CHAT_ID, m, appendLogMsg)
     } else {
-      console.error("[TELEGRAM] Erro no envio:", err.response?.data || err.message);
+      console.error("❌ [TELEGRAM] Erro no envio:", err.response?.data || err.message);
       throw err;
     }
   }
 }
 
-async function sendTelegramDocument(telegramAPIUrl, chatId, filePath, caption, appendLogMsg) {
-  const urlSendDocument = `${telegramAPIUrl}/sendDocument`;
+async function sendTelegramDocument(bot_id, chat_id, filePath, caption, appendLogMsg) {
+  const urlSendDocument = `${TELEGRAM_POST}${bot_id}/sendDocument`;
 
   const formDocument = new FormData();
-  formDocument.append("chat_id", chatId);
+  formDocument.append("chat_id", chat_id);
   formDocument.append("document", fs.createReadStream(filePath));
 
   if (caption) {
@@ -48,7 +54,7 @@ async function sendTelegramDocument(telegramAPIUrl, chatId, filePath, caption, a
     await axios.post(urlSendDocument, formDocument, {
       headers: { ...formDocument.getHeaders() }
     }).then((response) => {
-      console.log(`[TELEGRAM] Documento enviado com sucesso${appendLogMsg ? ` - ${appendLogMsg}` : ""}`);
+      console.log(`✅ [TELEGRAM] Documento enviado com sucesso${appendLogMsg ? ` - ${appendLogMsg}` : ""}`);
       if (response.status !== 200) {
         throw new Error(`${response}`);
       } else {
@@ -57,7 +63,7 @@ async function sendTelegramDocument(telegramAPIUrl, chatId, filePath, caption, a
     });
   } catch (err) {
     console.error(err.response?.data);
-    throw new Error(`[TELEGRAM] Erro no envio de Documento para o telegram:\n${err}`);
+    throw new Error(`❌ [TELEGRAM] Erro no envio de Documento para o telegram:\n${err}`);
   }
 }
 
@@ -122,11 +128,12 @@ function saveResultsDataFile(results) {
   saveFixture(afterRunResultsFile, resultsCreated)
 }
 
-async function sendWarnsNotification(bot_id, chat_id) {
-  const urlNotify = `${telegramBaseURL}${bot_id}`;
+async function sendWarnsNotification() {
   const pathDocToTelegram = `${PATH_TMP}/monitoramento/docToTelegram.json`
   const completePathDocToTelegram = path.join(__dirname, 'cypress', 'fixtures', pathDocToTelegram)
   const warnsFile = path.join(__dirname, 'cypress', 'fixtures', PATH_TO_WARNS)
+  const botId = `${__ENV.TELEGRAM_BOT_ID_WARNS}`;
+  const chatId = `${__ENV.TELEGRAM_CHAT_ID_WARNS}`
 
   if (fs.existsSync(warnsFile)) { // avoid null
 
@@ -151,19 +158,20 @@ async function sendWarnsNotification(bot_id, chat_id) {
 
     saveFixture(pathDocToTelegram, uniqueWarns)
 
+    
     try {
-      await sendTelegramDocument(urlNotify, chat_id, completePathDocToTelegram, undefined, "Documento de logs warns").then(() => {
-        console.log(`[TELEGRAM] Foi enviado o arquivo warns para o Telegram`);
+      await sendTelegramDocument(botId, chatId, completePathDocToTelegram, undefined, "Documento de logs warns").then(() => {
+        console.log(`ℹ️ [TELEGRAM] Foi enviado o arquivo warns para o Telegram`);
         fs.unlink(completePathDocToTelegram, (err) => {
           if (err) {
-            console.error(`[TMP] Não foi possível remover o arquivo: ${completePathDocToTelegram}`, err);
+            console.error(`ℹ️ [TELEGRAM] Não foi possível remover o arquivo: ${completePathDocToTelegram}`, err);
           } else {
-            console.log(`[TMP] Arquivo temporário para notificação removido - path: ${completePathDocToTelegram}`);
+            console.log(`ℹ️ [TELEGRAM] Arquivo temporário para notificação removido - path: ${completePathDocToTelegram}`);
           }
         });
       })
     } catch (err) {
-      console.error(`[TELEGRAM] Falha ao enviar documento:`, err.response?.data || err.message);
+      console.error(`❌ [TELEGRAM] Falha ao enviar documento:`, err.response?.data || err.message);
     }
   }
 }
@@ -194,15 +202,26 @@ function saveFixture(filePath, data) {
   return null;
 }
 
-async function sendTelegramPhoto(telegramAPIUr, formPhoto, appendLogMsg) {
+async function sendTelegramPhoto(bot_id, chat_id, screenshotPath, appendLogMsg) {
+  if (!bot_id || !chat_id || !screenshotPath) {
+    throw new Error(`
+      [sendTelegramPhoto] required variables must not be undefined:\nbot_id: ${bot_id}\nchat_id: ${chat_id}\nscreenshotPath: ${screenshotPath}`)
+  }
 
-  const urlSendPhoto = `${telegramAPIUrl}/sendPhoto`;
+  const urlSendPhoto = `${TELEGRAM_POST}${bot_id}/sendPhoto`;
+  const formPhoto = new FormData();
+
+  formPhoto.append("chat_id", `${chat_id}`);
+  formPhoto.append("photo", fs.createReadStream(screenshotPath));
+  formPhoto.append('Content-Type', 'application/json');
+  formPhoto.append("caption", `${screenshotPath}`); 
+
   try {
     await axios.post(urlSendPhoto, formPhoto, {
       headers: { ...formPhoto.getHeaders() }
     })
       .then((response) => {
-        console.log(`[TELEGRAM] Imagem enviado com sucesso${appendLogMsg ? ` - ${appendLogMsg}` : appendLogMsg}`);
+        console.log(`✅ [TELEGRAM] Imagem enviado com sucesso${appendLogMsg ? ` - ${appendLogMsg}` : appendLogMsg}`);
         if (response.status !== 200) {
           throw new Error(`${response}`)
         } else {
@@ -211,12 +230,12 @@ async function sendTelegramPhoto(telegramAPIUr, formPhoto, appendLogMsg) {
       })
   } catch (err) {
     console.error(err.response?.data);
-    throw new Error(`[TELEGRAM] Erro no envio de Imagem para o telegram:\n${err}`);
+    throw new Error(`❌ [TELEGRAM] Erro no envio de Imagem para o telegram:\n${err}`);
   }
 }
 
-async function sendTelegramVideo(telegramAPIUrl, chat_id, videoPath, txt, appendLogMsg) {
-  const urlSendVideo = `${telegramAPIUrl}/sendVideo`;
+async function sendTelegramVideo(bot_id, chat_id, videoPath, txt, appendLogMsg) {
+  const urlSendVideo = `${TELEGRAM_POST}${bot_id}/sendVideo`;
 
   const formVideo = new FormData();
 
@@ -229,7 +248,8 @@ async function sendTelegramVideo(telegramAPIUrl, chat_id, videoPath, txt, append
       headers: { ...formVideo.getHeaders() },
     })
       .then((response) => {
-        console.log(`[TELEGRAM] Vídeo enviado com sucesso${appendLogMsg ? ` - ${appendLogMsg}` : appendLogMsg}`);
+        const m = appendLogMsg != undefined ? ` - ${appendLogMsg}` : appendLogMsg
+        console.log(`✅ [TELEGRAM] Vídeo enviado com sucesso${m}`);
         if (response.status !== 200) {
           throw new Error(`${response}`)
         } else {
@@ -238,7 +258,7 @@ async function sendTelegramVideo(telegramAPIUrl, chat_id, videoPath, txt, append
       })
   } catch (err) {
      console.error(err.response?.data);
-     throw new Error(`[TELEGRAM] Erro no envio de Imagem para o telegram:\n${err}`);
+     throw new Error(`❌ [TELEGRAM] Erro no envio de Imagem para o telegram:\n${err}`);
   }
 }
 
@@ -398,8 +418,6 @@ module.exports = defineConfig({
 
           const currentTestName = spec.name;
 
-          const telegramAPI = `${telegramBaseURL}${objEnv.TELEGRAM_BOT_ID_PORTAL_MONITORAMENTO}`;
-
           if (results && results.video) { // existe vídeo de erros
 
             const failures = results.tests.some((test) => // houve erro na tentativa
@@ -466,32 +484,26 @@ module.exports = defineConfig({
                   const firstScreenshot = results.screenshots[0];
                   const screenshotPath = `${firstScreenshot.path}`;
 
-                  const formPhoto = new FormData();
-                  formPhoto.append("chat_id", `${objEnv.TELEGRAM_CHAT_ID_PORTAL_MONITORAMENTO}`);
-                  formPhoto.append("photo", fs.createReadStream(screenshotPath));
-                  formPhoto.append('Content-Type', 'application/json'),
-                    formPhoto.append("caption", `${defaultTxtTelegram}`);
-
                   try {
-                    await sendTelegramPhoto(telegramAPI, formPhoto, `Teste: ${currentTestName}`)
+                    await sendTelegramPhoto(objEnv.TELEGRAM_BOT_ID, objEnv.TELEGRAM_CHAT_ID, screenshotPath, `Teste: ${currentTestName}`)
                   } catch (err) {
                     console.error(err.response?.data);
-                    throw new Error(`[TELEGRAM] Erro no envio de Imagem para o telegram:\n${err}`);
+                    throw new Error(`❌ [TELEGRAM] Erro no envio de Imagem para o telegram:\n${err}`);
                   }
                 } else {
-                  throw new Error("[TELEGRAM] Marcado para enviar imagem, mas nenhuma imagem foi encontrada. Possível configuração do Cypress");
+                  throw new Error("❌ [TELEGRAM] Marcado para enviar imagem, mas nenhuma imagem foi encontrada. Possível configuração do Cypress");
                 }
               }
 
               if (objEnv.NOTIFY_ERR_TELEGRAM_VIDEO) {
                 if (results.video) {
-                  await sendTelegramVideo(telegramAPI, objEnv.TELEGRAM_CHAT_ID_PORTAL_MONITORAMENTO, results.video, defaultTxtTelegram)
+                  await sendTelegramVideo(objEnv.TELEGRAM_BOT_ID, objEnv.TELEGRAM_CHAT_ID, results.video, defaultTxtTelegram)
                 } else {
-                  throw new Error("[TELEGRAM] Marcado para enviar Vídeo, mas nenhuma vídeo foi encontrada. Possível configuração do Cypress");
+                  throw new Error("❌ [TELEGRAM] Marcado para enviar Vídeo, mas nenhuma vídeo foi encontrada. Possível configuração do Cypress");
                 }
               }
             } else {
-              console.log(`[TELEGRAM] skip notification\nNOTIFY:${objEnv.NOTIFY}\nNOTIFY_ERR_TELEGRAM_SCHEENSHOT:${objEnv.NOTIFY_ERR_TELEGRAM_SCHEENSHOT}\nNOTIFY_ERR_TELEGRAM_VIDEO:${objEnv.NOTIFY_ERR_TELEGRAM_VIDEO}\n`);
+              console.log(`ℹ️ [TELEGRAM] skip notification\nNOTIFY:${objEnv.NOTIFY}\nNOTIFY_ERR_TELEGRAM_SCHEENSHOT:${objEnv.NOTIFY_ERR_TELEGRAM_SCHEENSHOT}\nNOTIFY_ERR_TELEGRAM_VIDEO:${objEnv.NOTIFY_ERR_TELEGRAM_VIDEO}\n`);
             }
           }
         }
@@ -511,13 +523,13 @@ module.exports = defineConfig({
          * Itera no registro do arquivo com logs unique e envia para o telegram;
          * Caso o conjunto de caracteres esteja próximo do limite aceito no body do telegram, envia por partes.
          */
-        if (objEnv.NOTIFY_WARNS_TELEGRAM_MONITOR) {
-          if (!objEnv.CHAT_ID_WARNS_TELEGRAM_MONITOR) {
-            throw new Error(`CHAT_ID_WARNS_TELEGRAM_MONITOR must be provided`)
-          } else if (!objEnv.BOT_ID_WARNS_TELEGRAM_MONITOR) {
-            throw new Error(`BOT_ID_WARNS_TELEGRAM_MONITOR must be provided`)
+        if (objEnv.NOTIFY_WARNS_TELEGRAM) {
+          if (!objEnv.TELEGRAM_CHAT_ID_WARNS) {
+            throw new Error(`TELEGRAM_CHAT_ID_WARNS must be provided`)
+          } else if (!objEnv.TELEGRAM_BOT_ID_WARNS) {
+            throw new Error(`TELEGRAM_BOT_ID_WARNS must be provided`)
           } else {
-            await sendWarnsNotification(objEnv.BOT_ID_WARNS_TELEGRAM_MONITOR, objEnv.CHAT_ID_WARNS_TELEGRAM_MONITOR);
+            await sendWarnsNotification();
           }
         }
       });

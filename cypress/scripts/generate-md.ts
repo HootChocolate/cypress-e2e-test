@@ -112,14 +112,14 @@ function generateMarkdownFromJson(jsonPath: string) {
  */
 function main() {
     if (!fs.existsSync(CY_ROOT_DOCS_PATH)) {
-        console.log("Nenhum diretório de docs encontrado.");
+        console.log("❌ Nenhum diretório de docs encontrado.");
         return;
     }
 
     const jsonFiles = findAllJsonFilesRecursive(CY_ROOT_DOCS_PATH);
 
     if (jsonFiles.length === 0) {
-        console.log("Nenhum -doc.json encontrado para gerar Markdown.");
+        console.log("❌ Nenhum - doc.json encontrado para gerar Markdown.");
         return;
     }
 

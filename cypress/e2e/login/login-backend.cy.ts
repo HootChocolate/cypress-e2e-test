@@ -24,7 +24,8 @@ describe('Login', () => {
         cy
             .post_login(email, fakePerson.passwd, false)
             .then(response => {
-                check_status_code(response.status, 409, "/signin")
+                cy.warn('Teste warms')
+                check_status_code(response.status, 401, "/signin")
                 expect(`${response.statusText}`.toUpperCase(), "Deve bloquear acesso com senha inválida").to.be.eq("UNAUTHORIZED")
             })
     })
