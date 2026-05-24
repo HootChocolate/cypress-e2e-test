@@ -430,6 +430,8 @@ module.exports = defineConfig({
               // Se marcado para notificar e marcado para enviar vídeo ou imagem no telegram, ai envia.
             } else if (objEnv.NOTIFY || objEnv.NOTIFY_ERR_TELEGRAM_SCHEENSHOT || objEnv.NOTIFY_ERR_TELEGRAM_VIDEO) {
 
+              console.log(`ℹ️ [TELEGRAM] Notificará mídia`);
+              
               const testsArr = results.tests;
               let displayError = "";
 
@@ -468,7 +470,11 @@ module.exports = defineConfig({
 
               const now = formattedDate.format(new Date());
 
-              const defaultTxtTelegram = `Executado em: ${now}\nURL: ${base}\nAPI: ${objEnv.BASE_URL_API}\nArquivo: ${currentTestName}\n\nDisplayError:\n${displayError}`
+              const defaultTxtTelegram = `Executado em: ${now}\n
+                                          URL: ${base}\n
+                                          API: ${objEnv.BASE_URL_API}\n
+                                          Arquivo: ${currentTestName}\n\n
+                                          DisplayError:\n${displayError}`
 
               // console.log(JSON.stringify(results));
 
