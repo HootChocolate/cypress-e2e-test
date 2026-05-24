@@ -39,15 +39,15 @@ async function sendTelegramMessage(text, appendLogMsg) {
   }
 }
 
-async function sendTelegramDocument(bot_id, chat_id, filePath, caption, appendLogMsg) {
+async function sendTelegramDocument(bot_id, chat_id, filePath, tituloDoc, appendLogMsg) {
   const urlSendDocument = `${TELEGRAM_POST}${bot_id}/sendDocument`;
 
   const formDocument = new FormData();
   formDocument.append("chat_id", chat_id);
   formDocument.append("document", fs.createReadStream(filePath));
 
-  if (caption) {
-    formDocument.append("caption", caption);
+  if (tituloDoc) {
+    formDocument.append("caption", tituloDoc);
   }
 
   try {
@@ -62,6 +62,7 @@ async function sendTelegramDocument(bot_id, chat_id, filePath, caption, appendLo
       }
     });
   } catch (err) {
+    console.error('response err:\n');
     console.error(err.response?.data);
     throw new Error(`❌ [TELEGRAM] Erro no envio de Documento para o telegram:\n${err}`);
   }
@@ -128,12 +129,12 @@ function saveResultsDataFile(results) {
   saveFixture(afterRunResultsFile, resultsCreated)
 }
 
-async function sendWarnsNotification() {
+async function sendWarnsNotification(botId, chatId) {
   const pathDocToTelegram = `${PATH_TMP}/monitoramento/docToTelegram.json`
   const completePathDocToTelegram = path.join(__dirname, 'cypress', 'fixtures', pathDocToTelegram)
   const warnsFile = path.join(__dirname, 'cypress', 'fixtures', PATH_TO_WARNS)
-  const botId = `${__ENV.TELEGRAM_BOT_ID_WARNS}`;
-  const chatId = `${__ENV.TELEGRAM_CHAT_ID_WARNS}`
+
+  console.log('[TELEGRAM] Sending WARNS notification doc...');
 
   if (fs.existsSync(warnsFile)) { // avoid null
 
@@ -158,21 +159,15 @@ async function sendWarnsNotification() {
 
     saveFixture(pathDocToTelegram, uniqueWarns)
 
-    
-    try {
-      await sendTelegramDocument(botId, chatId, completePathDocToTelegram, undefined, "Documento de logs warns").then(() => {
-        console.log(`ℹ️ [TELEGRAM] Foi enviado o arquivo warns para o Telegram`);
-        fs.unlink(completePathDocToTelegram, (err) => {
-          if (err) {
-            console.error(`ℹ️ [TELEGRAM] Não foi possível remover o arquivo: ${completePathDocToTelegram}`, err);
-          } else {
-            console.log(`ℹ️ [TELEGRAM] Arquivo temporário para notificação removido - path: ${completePathDocToTelegram}`);
-          }
-        });
-      })
-    } catch (err) {
-      console.error(`❌ [TELEGRAM] Falha ao enviar documento:`, err.response?.data || err.message);
-    }
+    await sendTelegramDocument(botId, chatId, completePathDocToTelegram, "⚠️ Logs de warnings gerados durante os testes ⚠️").then(() => {
+      fs.unlink(completePathDocToTelegram, (err) => {
+        if (err) {
+          console.error(`ℹ️ [TELEGRAM] Não foi possível remover o arquivo: ${completePathDocToTelegram}`, err);
+        } else {
+          console.log(`ℹ️ [TELEGRAM] Arquivo temporário para notificação removido - path: ${completePathDocToTelegram}`);
+        }
+      });
+    })
   }
 }
 
@@ -529,7 +524,7 @@ module.exports = defineConfig({
           } else if (!objEnv.TELEGRAM_BOT_ID_WARNS) {
             throw new Error(`TELEGRAM_BOT_ID_WARNS must be provided`)
           } else {
-            await sendWarnsNotification();
+            await sendWarnsNotification(objEnv.TELEGRAM_BOT_ID_WARNS, objEnv.TELEGRAM_CHAT_ID_WARNS);
           }
         }
       });

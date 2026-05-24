@@ -27,7 +27,6 @@ function ensure_user_login_tmp_file(username: string, passWd: string, isFrontend
                     .post_login(username, passWd)
                     .then(response => {
                         cy.info(`Cria fixture de login para o usuário ${username}`);
-                        cy.warn(`Cria fixture de login para o usuário ${username}`);
 
                         if (!isFrontend) { // para teste do back é necessário exportar o token pra geral 
                             Cypress.env("accessToken", response.accessToken)
@@ -41,7 +40,6 @@ function ensure_user_login_tmp_file(username: string, passWd: string, isFrontend
                 // utiliza fixture existente
                 if (isFrontend) {
                     cy.info(`Utiliza fixture de login do usuário ${username}`);
-                    cy.warn(`Utiliza fixture de login do usuário ${username}`);
 
                     cy
                         .fixture(fixtureUserLoginHashPattern(username))
