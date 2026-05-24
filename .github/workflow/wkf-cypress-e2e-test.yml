@@ -1,6 +1,6 @@
 # Pipeline de execução no Github Actions
 
-name: Cypress E2E Tests
+name: cypress e2e tests
 
 on:
 
