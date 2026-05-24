@@ -470,11 +470,16 @@ module.exports = defineConfig({
 
               const now = formattedDate.format(new Date());
 
-              const defaultTxtTelegram = `Executado em: ${now}\n
-                                          URL: ${base}\n
-                                          API: ${objEnv.BASE_URL_API}\n
-                                          Arquivo: ${currentTestName}\n\n
-                                          DisplayError:\n${displayError}`
+              const red = ''
+              const reset = ''
+
+              const defaultTxtTelegram = `Executado em: ${now}
+                                          URL: ${base}
+                                          API: ${objEnv.BASE_URL_API !== undefined ? objEnv.BASE_URL_API : 'N/A'}
+                                          \`\`\`diff
+                                          - Arquivo: ${currentTestName}
+                                          \`\`\`
+                                          DisplayError: ${displayError}`;
 
               // console.log(JSON.stringify(results));
 
@@ -486,7 +491,7 @@ module.exports = defineConfig({
                   const screenshotPath = `${firstScreenshot.path}`;
 
                   try {
-                    await sendTelegramPhoto(objEnv.TELEGRAM_BOT_ID, objEnv.TELEGRAM_CHAT_ID, screenshotPath, `Teste: ${currentTestName}`)
+                    await sendTelegramPhoto(objEnv.TELEGRAM_BOT_ID, objEnv.TELEGRAM_CHAT_ID, screenshotPath, defaultTxtTelegram)
                   } catch (err) {
                     console.error(err.response?.data);
                     throw new Error(`❌ [TELEGRAM] Erro no envio de Imagem para o telegram:\n${err}`);
