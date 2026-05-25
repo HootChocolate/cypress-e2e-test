@@ -604,10 +604,13 @@ jobs:
           }
           EOF
           )
+
+          echo "payloadFail = $payloadFail"
+          echo "payloadFail = $(payloadFail)"
           
           response=$(curl -s -w "\n%{http_code}" -X POST "$TELEGRAM_POST" \
             -H "Content-Type: application/json" \
-            -d "$payloadFai"
+            -d "$(payloadFail)"
           )
 
           responseBody=$(echo "$response" | sed '$d')
