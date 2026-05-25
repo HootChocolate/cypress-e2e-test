@@ -316,21 +316,27 @@ jobs:
 
           echo "🚀 Enviando mensagem..."
 
+          payloadSuccess=$(cat <<EOF
+          {
+            "chat_id": "$TELEGRAM_CHAT_ID",
+            "parse_mode": "HTML",
+            "text": "✅ <b>Testes executados com sucesso!</b>\n
+            ━━━━━━━━━━━━━━━━━━━\n
+            🧪 <b>Framework:</b> Cypress $cypressVersion\n
+            🖥️ <b>Navegador:</b> $browserName - $browserVersion\n
+            🌐 <b>Servidor:</b> $baseUrl\n
+            📡 <b>API:</b> ${base_url_api:-N/A}\n
+            🔁 <b>Pipeline:</b> ${{ github.workflow }} ${{ github.run_number }}\n
+            📊 <b>Testes executados:</b> $totalSuites Suites - $totalTests Testes\n
+            📅 <b>Executado em:</b> $endedTestsAt\n
+            📈 <a href=\"$DASHBOARD_TESTS_RESULT\">Results Dashboard</a>"
+          }
+          EOF
+          )
+          
           response=$(curl -s -w "\n%{http_code}" -X POST "$TELEGRAM_POST" \
             -H "Content-Type: application/json" \
-            -d '{
-              "chat_id": "'"$TELEGRAM_CHAT_ID"'",
-              "parse_mode": "HTML",
-              "text": "✅ <b>Testes executados com sucesso!</b>\n\━━━━━━━━━━━━━━━━━━━
-          🧪 <b>Framework:</b> Cypress '"$cypressVersion"'\
-          🖥️ <b>Navegador:</b> '"$browserName"' - '"$browserVersion"'\
-          🌐 <b>Servidor:</b> '"$baseUrl"'\
-          📡 <b>API:</b> '"${base_url_api:-N/A}"'\
-          🔁 <b>Pipeline:</b> ${{ github.workflow }} ${{ github.run_number }}\
-          📊 <b>Testes executados:</b> '"$totalSuites"' Suites - '"$totalTests"' Testes\
-          📅 <b>Executado em:</b> '"$endedTestsAt"'\
-          📈 <a href=\"'"$DASHBOARD_TESTS_RESULT"'\">Results Dashboard</a>"
-            }'
+            -d "$payloadSuccess"
           )
 
           responseBody=$(echo "$response" | sed '$d')
@@ -579,165 +585,42 @@ jobs:
 
           echo "🚀 Enviando mensagem..."
 
-          # 🚨🚨🚨 ATENÇÃO:  São 2 payload de erro, a diferença é que um não tem o link para o telegram, no mais são identicos, ao editar, verifique ambos
-          # notifica
-          if [[ "$(NOTIFY_ERR_TELEGRAM_SCHEENSHOT)" == "true" || "$(NOTIFY_ERR_TELEGRAM_VIDEO)" == "true" ]]; then  # quando deve enviar o link do telegram
-            echo "📲 Notificação de erro, com link do Telegram"
+          payloadFail=$(cat <<EOF
+          {
+            "chat_id": "$TELEGRAM_CHAT_ID",
+            "parse_mode": "HTML",
+            "text": "❌ <b>Atenção: Testes executados com erros!</b>\n
+            ━━━━━━━━━━━━━━━━━━━\n
+            📅 <b>Executado em:</b> $endedTestsAt\n
+            🧪 <b>Framework:</b> Cypress $cypressVersion\n
+            🖥️ <b>Navegador:</b> $browserName - $browserVersion\n
+            🌐 <b>Servidor:</b> $baseUrl\n
+            📡 <b>API:</b> ${base_url_api:-N/A}\n
+            🔁 <b>Pipeline:</b> ${{ github.workflow }} ${{ github.run_number }}\n
+            📊 <b>Testes executados:</b> $totalSuites Suites - $totalTests Testes\n
+            🟢 <b>Testes com sucesso:</b> '"$totalPassed"'\
+            🔴 <b>Testes com erro:</b> '"$totalFailed"'\
+            📈 <a href=\"$DASHBOARD_TESTS_RESULT\">Results Dashboard</a>"
+          }
+          EOF
+          )
+          
+          response=$(curl -s -w "\n%{http_code}" -X POST "$TELEGRAM_POST" \
+            -H "Content-Type: application/json" \
+            -d "$payloadFai"
+          )
 
-            # <<EOF -heredoc, uma forma de escrever blocos de texto multilinha no shell
-            # Tudo que estiver entre <<EOF e EOF(pode ser qualquer palavra) será considerado texto literal
-            response=$(curl -s -w "\n%{http_code}" -X POST "$(TEAMS_URL)" \
-              -H "Content-Type: application/json" \
-              -d '{
-              "type": "AdaptiveCard",
-              "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-              "attachments": [
-                {
-                  "contentType": "application/vnd.microsoft.card.adaptive",
-                  "content": {
-                    "type": "AdaptiveCard",
-                    "version": "1.2",
-                    "msteams": { "width": "Full" },
-                    "body": [
-                      {
-                        "type": "ColumnSet",
-                        "columns": [
-                          {
-                            "type": "Column",
-                            "width": "stretch",
-                            "items": [
-                              {
-                                "type": "TextBlock",
-                                "text": "❌ Atenção: Os testes E2E com Cypress foram concluídos, mas algumas falhas foram detectadas.",
-                                "wrap": true,
-                                "spacing": "Small"
-                              }
-                            ]
-                          }
-                        ]
-                      },
-                      {
-                        "type": "FactSet",
-                        "facts": [
-                          { "title": "🧪 Framework:", "value": "Cypress $cypressVersion" },
-                          { "title": "🖥️ Navegador", "value": "$browserName - $browserVersion" },
-                          { "title": "🌐 Servidor:", "value": "$baseUrl" },
-                          { "title": "📡 API:", "value": "$base_url_api" },
-                          { "title": "🔁 Pipeline:", "value": "$(PIPELINE_TEST)" },
-                          { "title": "📊 Testes Executados:", "value": "$totalSuites Suites - $totalTests Testes" },
-                          { "title": "🟢 Testes com sucesso:", "value": "$totalPassed" },
-                          { "title": "🔴 Testes com erro:", "value": "$totalFailed" },
-                          { "title": "📅 Executado em:", "value": "$endedTestsAt" },
-                          { "title": "🕒 Tempo de Execução:", "value": "$totalDuration" }
-                        ]
-                      }
-                    ],
-                    "actions": [
-                      {
-                        "type": "Action.OpenUrl",
-                        "title": "📈 Results Dashboard",
-                        "url": "$(DASHBOARD_TESTS_RESULT)"
-                      },
-                      {
-                        "type": "Action.OpenUrl",
-                        "title": "📲 Ver no Telegram",
-                        "url": "$(TELEGRAM_URL_GROUP)"
-                      }
-                    ]
-                  }
-                }
-              ]
-            }')
+          responseBody=$(echo "$response" | sed '$d')
+          status_code=$(echo "$response" | tail -n1)
 
-            responseBody=$(echo "$response" | sed '$d')
-            status_code=$(echo "$response" | tail -n1)
+          echo "Status Code: $status_code"
 
-            echo "Status Code: $status_code"
-
-            if [ "$status_code" -ne 202 ]; then
-              echo "❌ Erro ao enviar mensagem para o Teams"
-              echo "Response body:"
-              echo "$responseBody"
-              exit 1
-            else
-              echo "✅ Mensagem enviada com sucesso!"
-            fi
-
-          else # quando NÃO deve enviar o link do telegram
-
-            echo "❌📲 Notificação de erro, SEM link do Telegram"
-
-            response=$(curl -s -w "\n%{http_code}" -X POST "$(TEAMS_URL)" \
-              -H "Content-Type: application/json" \
-              -d '{
-                "type": "AdaptiveCard",
-                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                "attachments": [
-                  {
-                    "contentType": "application/vnd.microsoft.card.adaptive",
-                    "content": {
-                      "type": "AdaptiveCard",
-                      "version": "1.2",
-                      "msteams": { "width": "Full" },
-                      "body": [
-                        {
-                          "type": "ColumnSet",
-                          "columns": [
-                            {
-                              "type": "Column",
-                              "width": "stretch",
-                              "items": [
-                                {
-                                  "type": "TextBlock",
-                                  "text": "❌ Atenção: Os testes E2E com Cypress foram concluídos, mas algumas falhas foram detectadas.",
-                                  "wrap": true,
-                                  "spacing": "Small"
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "type": "FactSet",
-                          "facts": [
-                            { "title": "🧪 Framework:", "value": "Cypress $cypressVersion" },
-                            { "title": "🖥️ Navegador", "value": "$browserName - $browserVersion" },
-                            { "title": "🌐 Servidor:", "value": "$baseUrl" },
-                            { "title": "📡 API:", "value": "$base_url_api" },
-                            { "title": "🔁 Pipeline:", "value": "$(PIPELINE_TEST)" },
-                            { "title": "📊 Testes Executados:", "value": "$totalSuites Suites - $totalTests Testes" },
-                            { "title": "🟢 Testes com sucesso:", "value": "$totalPassed" },
-                            { "title": "🔴 Testes com erro:", "value": "$totalFailed" },
-                            { "title": "📅 Executado em:", "value": "$endedTestsAt" },
-                            { "title": "🕒 Tempo de Execução:", "value": "$totalDuration" }
-                          ]
-                        }
-                      ],
-                      "actions": [
-                        {
-                          "type": "Action.OpenUrl",
-                          "title": "📈 Results Dashboard",
-                          "url": "$(DASHBOARD_TESTS_RESULT)"
-                        }
-                      ]
-                    }
-                  }
-                ]
-              }')
-
-            # separa body e status code
-            body=$(echo "$response" | sed '$d')
-            status_code=$(echo "$response" | tail -n1)
-
-            echo "Status Code: $status_code"
-
-            # validação
-            if [ "$status_code" -ne 202 ]; then
-              echo "❌ Erro ao enviar mensagem para o Teams"
-              echo "Response body:"
-              echo "$body"
-              exit 1
-            else
-              echo "✅ Mensagem enviada com sucesso!"
-            fi
+          if [ "$status_code" -ne 200 ]; then
+            echo "❌ Erro ao enviar mensagem para o Teams"
+            echo "Response body:"
+            echo "$responseBody"
+            exit 1
+          else
+            echo "✅ Mensagem enviada com sucesso!"
+          fi
     
