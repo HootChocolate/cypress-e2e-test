@@ -16,7 +16,7 @@ async function sendTelegramMessage(text, appendLogMsg) {
 
   const urlSendMessage = `${TELEGRAM_POST}/sendMessage`;
   const url = `/sendMessage`;
-  const body = { "chat_id": `${__ENV.TELEGRAM_CHAT_ID}`, "parse_mode": "HTML", "text": `${text}` }
+  const body = { "chat_id": `${__ENV.TELEGRAM_CHAT_ID}`, "parse_mode": "MarkdownV2", "text": `${text}` }
 
   try {
     const response = await axios.post(urlSendMessage, body);
@@ -197,7 +197,7 @@ function saveFixture(filePath, data) {
   return null;
 }
 
-async function sendTelegramPhoto(bot_id, chat_id, screenshotPath, appendLogMsg) {
+async function sendTelegramPhoto(bot_id, chat_id, screenshotPath, msg) {
   if (!bot_id || !chat_id || !screenshotPath) {
     throw new Error(`
       [sendTelegramPhoto] required variables must not be undefined:\nbot_id: ${bot_id}\nchat_id: ${chat_id}\nscreenshotPath: ${screenshotPath}`)
@@ -209,14 +209,16 @@ async function sendTelegramPhoto(bot_id, chat_id, screenshotPath, appendLogMsg) 
   formPhoto.append("chat_id", `${chat_id}`);
   formPhoto.append("photo", fs.createReadStream(screenshotPath));
   formPhoto.append('Content-Type', 'application/json');
-  formPhoto.append("caption", `${screenshotPath}`); 
+  if (msg) {
+    formPhoto.append("caption", msg); 
+  }
 
   try {
     await axios.post(urlSendPhoto, formPhoto, {
       headers: { ...formPhoto.getHeaders() }
     })
       .then((response) => {
-        console.log(`✅ [TELEGRAM] Imagem enviado com sucesso${appendLogMsg ? ` - ${appendLogMsg}` : appendLogMsg}`);
+        console.log(`✅ [TELEGRAM] Imagem enviado com sucesso!`);
         if (response.status !== 200) {
           throw new Error(`${response}`)
         } else {
@@ -430,7 +432,7 @@ module.exports = defineConfig({
               // Se marcado para notificar e marcado para enviar vídeo ou imagem no telegram, ai envia.
             } else if (objEnv.NOTIFY || objEnv.NOTIFY_ERR_TELEGRAM_SCHEENSHOT || objEnv.NOTIFY_ERR_TELEGRAM_VIDEO) {
 
-              console.log(`ℹ️ [TELEGRAM] Notificará mídia`);
+              console.log(`ℹ️ [TELEGRAM] Iniciando envio de mídia...`);
               
               const testsArr = results.tests;
               let displayError = "";
@@ -453,7 +455,7 @@ module.exports = defineConfig({
                     displayError = auxDisplayError.split('No request ever occurred')[0];
 
                   } else {
-                    displayError = auxDisplayError.substring(0, 255); // pega um default
+                    displayError = auxDisplayError.substring(0, 500); // pega um default
                   }
                 }
               }
@@ -470,16 +472,9 @@ module.exports = defineConfig({
 
               const now = formattedDate.format(new Date());
 
-              const red = ''
-              const reset = ''
-
-              const defaultTxtTelegram = `Executado em: ${now}
-                                          URL: ${base}
-                                          API: ${objEnv.BASE_URL_API !== undefined ? objEnv.BASE_URL_API : 'N/A'}
-                                          \`\`\`diff
-                                          - Arquivo: ${currentTestName}
-                                          \`\`\`
-                                          DisplayError: ${displayError}`;
+              const auxApi = `${objEnv.BASE_URL_API !== undefined ? objEnv.BASE_URL_API : 'N/A'}`
+              
+              const defaultTxtTelegram = `⚠️ Atenção!\nTeste falhou ao ser executado.\n\n🧪 Arquivo: ${currentTestName}\n📅 Executado em: ${now}\n🔗 URL: ${base}\n📡 API: ${auxApi}\n\n❌ Stack Trace:\n${displayError}`
 
               // console.log(JSON.stringify(results));
 
