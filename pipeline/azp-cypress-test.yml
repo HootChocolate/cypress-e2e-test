@@ -761,13 +761,12 @@ stages:
                 echo "TELEGRAM_BOT_ID = $TELEGRAM_BOT_ID"
                 echo "TELEGRAM_POST = $TELEGRAM_POST"
                 echo "DASHBOARD_TESTS_RESULT = $(DASHBOARD_TESTS_RESULT)"
-                echo "TEST_RUN_URL = $$TEST_RUN_URL"
 
                 # extrai variáveis
                 CY_RESULTS_FILE_PATH="$(System.DefaultWorkingDirectory)/afterRunResults/after_run-results.json"
 
                 if [ ! -s "$CY_RESULTS_FILE_PATH" ]; then
-                  echo "Arquivo $CY_RESULTS_FILE_PATH não encontrado ou vazio!"
+                  echo "❌ Arquivo $CY_RESULTS_FILE_PATH não encontrado ou vazio!"
                   ls -lah "$(dirname "$CY_RESULTS_FILE_PATH")"
                   exit 1
                 fi

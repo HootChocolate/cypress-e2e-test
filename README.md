@@ -203,3 +203,6 @@ Cypress.Commands.add("do_something", () => {
 })   
 ```
 
+##### Exemplo de notificação:
+
+![Exemplo de notificação](/cypress/fixtures/geral/imagens/cy-flow-notify.png)
