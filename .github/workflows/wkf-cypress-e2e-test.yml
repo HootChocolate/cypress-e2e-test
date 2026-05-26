@@ -222,7 +222,7 @@ jobs:
       #   run: |
       #     echo "📚 Publicando documentação na Wiki do Azure, gerada em teste anterior..."
 
-  NotifyTestResults:
+  NotifyTestSuccessResults:
     name: "Successo - Notificação"
     runs-on: ubuntu-latest
     needs: CypressE2ETests
@@ -236,7 +236,7 @@ jobs:
           path: ./afterRunResults
 
       - name: "Telegram"
-        if: vars.NOTIFY_ON == 'TELEGRAM'
+        if: vars.NOTIFY_ON == 'Telegram'
         env:
           TELEGRAM_BOT_ID: ${{ vars.TELEGRAM_BOT_ID }}
           TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_CHAT_ID }}
@@ -316,21 +316,27 @@ jobs:
 
           echo "🚀 Enviando mensagem..."
 
+          payloadSuccess=$(cat <<EOF
+          {
+            "chat_id": "$TELEGRAM_CHAT_ID",
+            "parse_mode": "HTML",
+            "text": "✅ <b>Testes executados com sucesso!</b>\n
+            ━━━━━━━━━━━━━━━━━━━\n
+            🧪 <b>Framework:</b> Cypress $cypressVersion\n
+            🖥️ <b>Navegador:</b> $browserName - $browserVersion\n
+            🌐 <b>Servidor:</b> $baseUrl\n
+            📡 <b>API:</b> ${base_url_api:-N/A}\n
+            🔁 <b>Pipeline:</b> ${{ github.workflow }} ${{ github.run_number }}\n
+            📊 <b>Testes executados:</b> $totalSuites Suites - $totalTests Testes\n
+            📅 <b>Executado em:</b> $endedTestsAt\n
+            📈 <a href=\"$DASHBOARD_TESTS_RESULT\">Results Dashboard</a>"
+          }
+          EOF
+          )
+          
           response=$(curl -s -w "\n%{http_code}" -X POST "$TELEGRAM_POST" \
             -H "Content-Type: application/json" \
-            -d '{
-              "chat_id": "'"$TELEGRAM_CHAT_ID"'",
-              "parse_mode": "HTML",
-              "text": "✅ <b>Testes executados com sucesso!</b>\n\━━━━━━━━━━━━━━━━━━━
-          🧪 <b>Framework:</b> Cypress '"$cypressVersion"'\
-          🖥️ <b>Navegador:</b> '"$browserName"' - '"$browserVersion"'\
-          🌐 <b>Servidor:</b> '"$baseUrl"'\
-          📡 <b>API:</b> '"${base_url_api:-N/A}"'\
-          🔁 <b>Pipeline:</b> ${{ github.workflow }} ${{ github.run_number }}\
-          📊 <b>Testes executados:</b> '"$totalSuites"' Suites - '"$totalTests"' Testes\
-          📅 <b>Executado em:</b> '"$endedTestsAt"'\
-          📈 <a href=\"'"$DASHBOARD_TESTS_RESULT"'\">Results Dashboard</a>"
-            }'
+            -d "$payloadSuccess"
           )
 
           responseBody=$(echo "$response" | sed '$d')
@@ -348,7 +354,7 @@ jobs:
           fi
 
       - name: "Teams"
-        if: vars.NOTIFY_ON == 'TEAMS'
+        if: vars.NOTIFY_ON == 'Teams'
         env:
           TEAMS_URL: ${{ vars.TEAMS_URL }}
         run: |
@@ -481,3 +487,367 @@ jobs:
           else
             echo "Mensagem enviada com sucesso $APPEND_STT_RESPONSE_CODE"
           fi
+
+  NotifyTestFailResults:
+    name: "Falha - Notificação"
+    runs-on: ubuntu-latest
+    needs: CypressE2ETests
+    if: failure() && vars.NOTIFY
+
+    steps:
+      - name: "Baixa after_run-results.json"
+        uses: actions/download-artifact@v4
+        with:
+          name: afterRunResults
+          path: ./afterRunResults
+
+      - name: "Telegram"
+        if: vars.NOTIFY_ON == 'Telegram'
+        env:
+          TELEGRAM_BOT_ID: ${{ vars.TELEGRAM_BOT_ID }}
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_CHAT_ID }}
+        run: |
+          echo "👉 Notificará erro..."
+
+          # Valida variáveis required para o fluxo
+          if [ -z "$TELEGRAM_BOT_ID" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            # -z = variável vazia ou não definida
+            echo "❌ ERRO = Variáveis obrigatórias não informadas!"
+            echo "TELEGRAM_BOT_ID=$TELEGRAM_BOT_ID"
+            echo "TELEGRAM_CHAT_ID=$TELEGRAM_CHAT_ID"
+            exit 1
+          fi
+
+          echo "⚙️ Debug variables ⚙️"
+
+          echo "TELEGRAM_CHAT_ID = $TELEGRAM_CHAT_ID"
+          echo "TELEGRAM_BOT_ID = $TELEGRAM_BOT_ID"
+          echo "TELEGRAM_POST = $TELEGRAM_POST"
+          echo "DASHBOARD_TESTS_RESULT = $DASHBOARD_TESTS_RESULT"
+
+          # extrai variáveis
+          CY_RESULTS_FILE_PATH="./afterRunResults/after_run-results.json"
+
+          if [ ! -s "$CY_RESULTS_FILE_PATH" ]; then
+            echo "❌ Arquivo $CY_RESULTS_FILE_PATH não encontrado ou vazio!"
+            ls -lah "$(dirname "$CY_RESULTS_FILE_PATH")"
+            exit 1
+          fi
+
+          echo "⚙️ Conteúdo do arquivo ⚙️"
+          cat "$CY_RESULTS_FILE_PATH" | jq
+
+          # itera sobre o results.json e atribui valor às variáveis
+          for key in $(jq -r 'keys[]' "$CY_RESULTS_FILE_PATH"); do
+            value=$(jq -r --arg k "$key" '.[$k]' "$CY_RESULTS_FILE_PATH")
+
+            if [ "$key" = "baseUrl" ]; then
+              baseUrl="$value"
+            elif [ "$key" = "base_url_api" ]; then
+              base_url_api="$value"
+            elif [ "$key" = "endedTestsAt" ]; then
+              endedTestsAt="$value"
+            elif [ "$key" = "totalDuration" ]; then
+              totalDuration="$value"
+            elif [ "$key" = "totalPassed" ]; then
+              totalPassed="$value"
+            elif [ "$key" = "totalFailed" ]; then
+              totalFailed="$value"
+            elif [ "$key" = "totalSuites" ]; then
+              totalSuites="$value"
+            elif [ "$key" = "totalTests" ]; then
+              totalTests="$value"
+            elif [ "$key" = "osName" ]; then
+              osName="$value"
+            elif [ "$key" = "cypressVersion" ]; then
+              cypressVersion="$value"
+            elif [ "$key" = "browserName" ]; then
+              browserName="$value"
+            elif [ "$key" = "browserVersion" ]; then
+              browserVersion="$value"
+            fi
+          done
+
+          echo "⚙️ Debug variables ⚙️"
+
+          echo "baseUrl = $baseUrl"
+          echo "base_url_api = $base_url_api"
+          echo "endedTestsAt = $endedTestsAt"
+          echo "totalDuration = $totalDuration"
+          echo "totalPassed = $totalPassed"
+          echo "totalFailed = $totalFailed"
+          echo "totalSuites = $totalSuites"
+          echo "totalTests = $totalTests"
+          echo "osName = $osName"
+          echo "cypressVersion = $cypressVersion"
+          echo "browserName = $browserName"
+          echo "browserVersion = $browserVersion"
+
+          echo "🚀 Enviando mensagem..."
+
+          payloadFail=$(cat <<EOF
+          {
+            "chat_id": "$TELEGRAM_CHAT_ID",
+            "parse_mode": "HTML",
+            "text": "❌ <b>Atenção: Testes executados com erros!</b>\n
+            ━━━━━━━━━━━━━━━━━━━\n
+            📅 <b>Executado em:</b> $endedTestsAt\n
+            🧪 <b>Framework:</b> Cypress $cypressVersion\n
+            🖥️ <b>Navegador:</b> $browserName - $browserVersion\n
+            🌐 <b>Servidor:</b> $baseUrl\n
+            📡 <b>API:</b> ${base_url_api:-N/A}\n
+            🔁 <b>Pipeline:</b> ${{ github.workflow }} ${{ github.run_number }}\n
+            📊 <b>Testes executados:</b> $totalSuites Suites - $totalTests Testes\n
+            🟢 <b>Testes com sucesso:</b> '"$totalPassed"'\
+            🔴 <b>Testes com erro:</b> '"$totalFailed"'\
+            📈 <a href=\"$DASHBOARD_TESTS_RESULT\">Results Dashboard</a>"
+          }
+          EOF
+          )
+          
+          response=$(curl -s -w "\n%{http_code}" -X POST "$TELEGRAM_POST" \
+            -H "Content-Type: application/json" \
+            -d "$payloadFail"
+          )
+
+          responseBody=$(echo "$response" | sed '$d')
+          status_code=$(echo "$response" | tail -n1)
+
+          echo "Status Code: $status_code"
+
+          if [ "$status_code" -ne 200 ]; then
+            echo "❌ Erro ao enviar mensagem para o Teams"
+            echo "Response body:"
+            echo "$responseBody"
+            exit 1
+          else
+            echo "✅ Mensagem enviada com sucesso!"
+          fi
+
+      - name: "Teams"
+        if: vars.NOTIFY_ON == 'Teams'
+        env:
+          TEAMS_URL: ${{ vars.TEAMS_URL }}
+        run: |
+          echo "👉 Notificará erro..."
+
+          echo "TEAMS_URL = $TEAMS_URL"
+          echo "DASHBOARD_TESTS_RESULT = $DASHBOARD_TESTS_RESULT"
+
+          # extrai variáveis
+          CY_RESULTS_FILE_PATH="./afterRunResults/after_run-results.json"
+
+          if [ ! -s "$CY_RESULTS_FILE_PATH" ]; then
+            echo "Arquivo $CY_RESULTS_FILE_PATH não encontrado ou vazio!"
+            ls -lah "$(dirname "$CY_RESULTS_FILE_PATH")"
+            exit 1
+          fi
+
+          # itera sobre o results.json e atribui valor às variáveis
+          for key in $(jq -r 'keys[]' "$CY_RESULTS_FILE_PATH"); do
+            value=$(jq -r --arg k "$key" '.[$k]' "$CY_RESULTS_FILE_PATH")
+
+            if [ "$key" = "baseUrl" ]; then
+              baseUrl="$value"
+            elif [ "$key" = "base_url_api" ]; then
+              base_url_api="$value"
+            elif [ "$key" = "endedTestsAt" ]; then
+              endedTestsAt="$value"
+            elif [ "$key" = "totalDuration" ]; then
+              totalDuration="$value"
+            elif [ "$key" = "totalPassed" ]; then
+              totalPassed="$value"
+            elif [ "$key" = "totalFailed" ]; then
+              totalFailed="$value"
+            elif [ "$key" = "totalSuites" ]; then
+              totalSuites="$value"
+            elif [ "$key" = "totalTests" ]; then
+              totalTests="$value"
+            elif [ "$key" = "osName" ]; then
+              osName="$value"
+            elif [ "$key" = "cypressVersion" ]; then
+              cypressVersion="$value"
+            elif [ "$key" = "browserName" ]; then
+              browserName="$value"
+            elif [ "$key" = "browserVersion" ]; then
+              browserVersion="$value"
+            fi
+          done
+
+          echo "⚙️ Debug variables ⚙️"
+
+          echo "baseUrl = $baseUrl"
+          echo "base_url_api = ${base_url_api:-N/A}"
+          echo "endedTestsAt = $endedTestsAt"
+          echo "totalDuration = $totalDuration"
+          echo "totalPassed = $totalPassed"
+          echo "totalFailed = $totalFailed"
+          echo "totalSuites = $totalSuites"
+          echo "totalTests = $totalTests"
+          echo "osName = $osName"
+          echo "cypressVersion = $cypressVersion"
+          echo "browserName = $browserName"
+          echo "browserVersion = $browserVersion"
+
+          # 🚨🚨🚨 ATENÇÃO:  São 2 payload de erro, a diferença é que um não tem o link para o telegram, no mais são identicos, ao editar, verifique ambos
+          # notifica
+          if [[ "$(NOTIFY_ERR_TELEGRAM_SCHEENSHOT)" == "true" || "$(NOTIFY_ERR_TELEGRAM_VIDEO)" == "true" ]]; then  # quando deve enviar o link do telegram
+            echo "📲 Notificação de erro, com link do Telegram"
+
+            # <<EOF -heredoc, uma forma de escrever blocos de texto multilinha no shell
+            # Tudo que estiver entre <<EOF e EOF(pode ser qualquer palavra) será considerado texto literal
+            response=$(curl -s -w "\n%{http_code}" -X POST "$(TEAMS_URL)" \
+              -H "Content-Type: application/json" \
+              -d '{
+              "type": "AdaptiveCard",
+              "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+              "attachments": [
+                {
+                  "contentType": "application/vnd.microsoft.card.adaptive",
+                  "content": {
+                    "type": "AdaptiveCard",
+                    "version": "1.2",
+                    "msteams": { "width": "Full" },
+                    "body": [
+                      {
+                        "type": "ColumnSet",
+                        "columns": [
+                          {
+                            "type": "Column",
+                            "width": "stretch",
+                            "items": [
+                              {
+                                "type": "TextBlock",
+                                "text": "❌ Atenção: Os testes E2E com Cypress foram concluídos, mas algumas falhas foram detectadas.",
+                                "wrap": true,
+                                "spacing": "Small"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "type": "FactSet",
+                        "facts": [
+                          { "title": "🧪 Framework:", "value": "Cypress $cypressVersion" },
+                          { "title": "🖥️ Navegador", "value": "$browserName - $browserVersion" },
+                          { "title": "🌐 Servidor:", "value": "$baseUrl" },
+                          { "title": "📡 API:", "value": "$base_url_api" },
+                          { "title": "🔁 Pipeline:", "value": "$(PIPELINE_TEST)" },
+                          { "title": "📊 Testes Executados:", "value": "$totalSuites Suites - $totalTests Testes" },
+                          { "title": "🟢 Testes com sucesso:", "value": "$totalPassed" },
+                          { "title": "🔴 Testes com erro:", "value": "$totalFailed" },
+                          { "title": "📅 Executado em:", "value": "$endedTestsAt" },
+                          { "title": "🕒 Tempo de Execução:", "value": "$totalDuration" }
+                        ]
+                      }
+                    ],
+                    "actions": [
+                      {
+                        "type": "Action.OpenUrl",
+                        "title": "📈 Results Dashboard",
+                        "url": "$(DASHBOARD_TESTS_RESULT)"
+                      },
+                      {
+                        "type": "Action.OpenUrl",
+                        "title": "📲 Ver no Telegram",
+                        "url": "$(TELEGRAM_URL_GROUP)"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }')
+
+            responseBody=$(echo "$response" | sed '$d')
+            status_code=$(echo "$response" | tail -n1)
+
+            echo "Status Code: $status_code"
+
+            if [ "$status_code" -ne 202 ]; then
+              echo "❌ Erro ao enviar mensagem para o Teams"
+              echo "Response body:"
+              echo "$responseBody"
+              exit 1
+            else
+              echo "✅ Mensagem enviada com sucesso!"
+            fi
+
+          else # quando NÃO deve enviar o link do telegram
+
+            echo "❌📲 Notificação de erro, SEM link do Telegram"
+
+            response=$(curl -s -w "\n%{http_code}" -X POST "$(TEAMS_URL)" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "type": "AdaptiveCard",
+                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                "attachments": [
+                  {
+                    "contentType": "application/vnd.microsoft.card.adaptive",
+                    "content": {
+                      "type": "AdaptiveCard",
+                      "version": "1.2",
+                      "msteams": { "width": "Full" },
+                      "body": [
+                        {
+                          "type": "ColumnSet",
+                          "columns": [
+                            {
+                              "type": "Column",
+                              "width": "stretch",
+                              "items": [
+                                {
+                                  "type": "TextBlock",
+                                  "text": "❌ Atenção: Os testes E2E com Cypress foram concluídos, mas algumas falhas foram detectadas.",
+                                  "wrap": true,
+                                  "spacing": "Small"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "FactSet",
+                          "facts": [
+                            { "title": "🧪 Framework:", "value": "Cypress $cypressVersion" },
+                            { "title": "🖥️ Navegador", "value": "$browserName - $browserVersion" },
+                            { "title": "🌐 Servidor:", "value": "$baseUrl" },
+                            { "title": "📡 API:", "value": "$base_url_api" },
+                            { "title": "🔁 Pipeline:", "value": "$(PIPELINE_TEST)" },
+                            { "title": "📊 Testes Executados:", "value": "$totalSuites Suites - $totalTests Testes" },
+                            { "title": "🟢 Testes com sucesso:", "value": "$totalPassed" },
+                            { "title": "🔴 Testes com erro:", "value": "$totalFailed" },
+                            { "title": "📅 Executado em:", "value": "$endedTestsAt" },
+                            { "title": "🕒 Tempo de Execução:", "value": "$totalDuration" }
+                          ]
+                        }
+                      ],
+                      "actions": [
+                        {
+                          "type": "Action.OpenUrl",
+                          "title": "📈 Results Dashboard",
+                          "url": "$(DASHBOARD_TESTS_RESULT)"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }')
+
+            # separa body e status code
+            body=$(echo "$response" | sed '$d')
+            status_code=$(echo "$response" | tail -n1)
+
+            echo "Status Code: $status_code"
+
+            # validação
+            if [ "$status_code" -ne 202 ]; then
+              echo "❌ Erro ao enviar mensagem para o Teams"
+              echo "Response body:"
+              echo "$body"
+              exit 1
+            else
+              echo "✅ Mensagem enviada com sucesso!"
+            fi
+    
